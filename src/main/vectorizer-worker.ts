@@ -1,7 +1,7 @@
 import workerpool from 'workerpool'
-import type { FeatureExtractionPipeline } from '@xenova/transformers'
+import type { Pipeline } from '@xenova/transformers'
 
-let vectorizer: FeatureExtractionPipeline | null = null
+let vectorizer: Pipeline | null = null
 
 async function initialize(): Promise<boolean> {
   const { pipeline } = await import('@xenova/transformers')
