@@ -4,15 +4,12 @@ import {
   BrowserWindow,
   globalShortcut,
   screen,
-  protocol,
   Tray,
   Menu,
-  nativeImage,
-  ipcMain
+  nativeImage
 } from 'electron'
 import { join } from 'node:path'
 import SearchDB from './db'
-import { WebScraperService } from './services/webScraper'
 import path from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import { createIPCHandler } from 'electron-trpc/main'
@@ -21,7 +18,7 @@ import { getRouter } from './api'
 // Global variables
 process.env.APP_ROOT = path.join(__dirname, '..')
 let tray: Tray | null = null
-let mainWindow: BrowserWindow
+let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
@@ -45,7 +42,6 @@ function createWindow(): void {
       devTools: true
     }
   })
-  mainWindow.webContents.openDevTools()
   // Set up tRPC handler
   createIPCHandler({
     router: getRouter(mainWindow),
@@ -53,20 +49,33 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
   })
 
   if (!is.dev) {
-    mainWindow.on('blur', () => {
-      mainWindow.hide()
+    mainWindow?.on('blur', () => {
+      mainWindow?.hide()
     })
   }
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    mainWindow?.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow?.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  mainWindow?.on('close', async () => {
+    try {
+      const searchDB = await SearchDB.getInstance(app.getPath('userData'))
+      await searchDB.shutdown()
+    } catch (error) {
+      console.error('Error during shutdown:', error)
+    }
+  })
+
+  mainWindow?.on('closed', () => {
+    mainWindow = null
+  })
 }
 function createTray(): void {
   const icon = nativeImage.createFromPath(
@@ -83,7 +92,7 @@ function createTray(): void {
 
 function toggleWindow(): void {
   if (mainWindow?.isVisible()) {
-    mainWindow.hide()
+    mainWindow?.hide()
   } else {
     mainWindow?.show()
     mainWindow?.focus()
@@ -123,7 +132,6 @@ app.on('window-all-closed', () => {
 app.on('will-quit', async () => {
   // Clean up
   globalShortcut.unregisterAll()
-  WebScraperService.cleanup()
 
   // Persist search database
   const userDataPath = app.getPath('userData')

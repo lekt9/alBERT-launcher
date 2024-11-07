@@ -1,45 +1,48 @@
-appId: com.electron.app
-productName: albert-launcher
+appId: com.albert.app
+productName: alBERT
 directories:
   buildResources: build
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.{js,ts,mjs,cjs}"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+extraResources:
+  - lib
+asar: false
 asarUnpack:
   - resources/**
-win:
-  executableName: albert-launcher
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+afterSign: build/notarize.js
 mac:
+  category: "public.app-category.developer-tools"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}.${ext}
-linux:
+  artifactName: ${name}-osx-${arch}.${ext}
   target:
-    - AppImage
-    - snap
+    - target: "default"
+      arch:
+        - x64
+        - arm64
+windows:
+  artifactName: ${name}-win-${arch}.${ext}
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - ia32
+  icon: build/icon.ico
+  publisherName: alBERT
+linux:
+  artifactName: ${name}.${ext}
+  target:
     - deb
+    - rpm
   maintainer: electronjs.org
   category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
-npmRebuild: false
 publish:
   provider: generic
   url: https://example.com/auto-updates
-electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/

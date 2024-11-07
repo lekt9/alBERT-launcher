@@ -1,13 +1,12 @@
-import { exposeElectronTRPC } from "electron-trpc/main";
-const { contextBridge, ipcRenderer } = require("electron");
+import { exposeElectronTRPC } from 'electron-trpc/main'
+const { contextBridge } = require('electron')
 
-const ipcApi = {
-};
+const ipcApi = {}
 
-export type ipcApiType = typeof ipcApi;
+export type ipcApiType = typeof ipcApi
 
-contextBridge.exposeInMainWorld("electronIpc", ipcApi);
+contextBridge.exposeInMainWorld('electronIpc', ipcApi)
 
-process.once("loaded", async () => {
-  exposeElectronTRPC();
-});
+process.once('loaded', async () => {
+  exposeElectronTRPC()
+})

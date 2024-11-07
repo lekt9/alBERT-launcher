@@ -35,6 +35,13 @@ const schema = {
   vectorizer: 'none'
 }
 
+interface WeaviateDocument {
+  content: string
+  path: string
+  lastModified: number
+  extension: string
+}
+
 class SearchDB {
   private static instance: SearchDB | null = null
   private client: EmbeddedClient
@@ -49,7 +56,7 @@ class SearchDB {
     this.setupShutdownHandlers()
   }
 
-  private async _getVectorizer() {
+  private async _getVectorizer(): Promise<Awaited<ReturnType<typeof workers.getVectorizer>>> {
     if (!this._vectorizer) {
       this._vectorizer = await workers.getVectorizer()
     }
@@ -166,13 +173,14 @@ class SearchDB {
     return SearchDB.instance
   }
 
-  private setupShutdownHandlers() {
-    const shutdown = async () => {
+  private setupShutdownHandlers(): void {
+    const shutdown = async (): Promise<void> => {
       if (this.isShuttingDown) return
       this.isShuttingDown = true
       console.log('Shutting down Weaviate embedded server...')
+      await this.persist()  // Ensure data is persisted before shutdown
       await this.shutdown()
-      process.exit(0)
+      // Don't call process.exit() directly - let the app handle shutdown
     }
 
     process.on('SIGINT', shutdown)
@@ -186,27 +194,21 @@ class SearchDB {
 
   private async initializeDB(): Promise<void> {
     try {
-      // Check if schema exists
-      // const schemaExists = await this.client.schema
-      //   .classGetter()
-      //   .withClassName(schema.class)
-      //   .do();
-
-      // if (!schemaExists) {
       try {
         await this.client.schema.classCreator().withClass(schema).do()
         console.log('Schema created successfully.')
-      } catch (error) {
+      } catch (err) {
+        const error = err as Error
         console.log('Schema already exists or failed to create:', error.message)
       }
-      // }
-    } catch (error) {
+    } catch (err) {
+      const error = err as Error
       console.error('Error initializing Weaviate schema:', error)
       throw error
     }
   }
 
-  public async loadFileIndex() {
+  public async loadFileIndex(): Promise<void> {
     try {
       const indexContent = await fs.readFile(this.indexPath, 'utf-8')
       this.fileIndex = JSON.parse(indexContent)
@@ -235,7 +237,19 @@ class SearchDB {
     return await parseFile(filePath)
   }
 
-  public async search(searchTerm: string) {
+  public async search(searchTerm: string): Promise<Array<{
+    text: string
+    metadata: {
+      path: string
+      created_at: number
+      modified_at: number
+      filetype: string
+      languages: string[]
+      links: string[]
+      owner: null
+      seen_at: number
+    }
+  }>> {
     try {
       const vector = await embed(searchTerm)
       const result = await this.client.graphql
@@ -249,7 +263,7 @@ class SearchDB {
         .withFields('content path lastModified extension')
         .do()
 
-      return result.data.Get.Document.map((hit: any) => ({
+      return result.data.Get.Document.map((hit: WeaviateDocument) => ({
         text: hit.content,
         metadata: {
           path: hit.path,

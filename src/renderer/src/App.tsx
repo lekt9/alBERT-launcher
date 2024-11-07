@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Search, FileText, MessageSquare, Loader2, Lock, LockOpen, Trash2, X } from 'lucide-react'
+import { Search, FileText, MessageSquare, Loader2, Lock, LockOpen, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn, splitContent } from '@/lib/utils'
@@ -26,11 +26,6 @@ interface SearchResult {
     owner: string | null
     seen_at: number
   }
-}
-
-interface ChatViewProps {
-  result: SearchResult;
-  onClose: () => void;
 }
 
 interface Message {
@@ -155,7 +150,7 @@ function App() {
       } finally {
         setIsLoading(false)
       }
-    }, 800),
+    }, 1000),
     [currentSettings]
   )
 
