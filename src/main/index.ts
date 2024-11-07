@@ -18,7 +18,7 @@ import { homedir } from 'os'
 import { parseFile } from './utils/fileParser'
 import { WebScraperService } from './services/webScraper'
 import path = require("node:path");
-import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import { is } from "@electron-toolkit/utils";
 
 // Register privileged schemes
 protocol.registerSchemesAsPrivileged([
@@ -108,13 +108,16 @@ function toggleWindow() {
 
 app.whenReady().then(async () => {
   globalShortcut.register('Alt+Space', toggleWindow)
-  createWindow()
-  createTray()
   const userDataPath = app.getPath('userData')
   const searchDB = await SearchDB.getInstance(userDataPath)
-  await searchDB.startIndexing(path.join(app.getPath('home'), 'alBERT'), (progress, status) => {
+  searchDB.startIndexing(path.join(app.getPath('home'), 'alBERT'), (progress, status) => {
     mainWindow?.webContents.send('indexing-progress', { progress, status })
+  }).catch(error => {
+    console.error('Error indexing directory:', error)
   })
+  createWindow()
+  createTray()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

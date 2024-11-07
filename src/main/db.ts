@@ -119,6 +119,8 @@ class SearchDB {
       const stats = await fs.stat(filePath)
       const parsedPath = path.parse(filePath)
       const content = await this.getFileContent(filePath)
+
+      console.log('content', content)
       const vectorizer = await this._getVectorizer()
       const vector = await vectorizer.vectorize([content])
 
