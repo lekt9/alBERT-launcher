@@ -9,39 +9,23 @@ import {
   Menu,
   nativeImage,
   ipcMain
-} from "electron";
-import  { join, resolve } from 'node:path'
-import { desktopCapturer } from 'electron'
+} from 'electron'
+import { join } from 'node:path'
 import SearchDB from './db'
-import chokidar from 'chokidar'
-import { homedir } from 'os'
-import { parseFile } from './utils/fileParser'
 import { WebScraperService } from './services/webScraper'
-import path = require("node:path");
-import { is } from "@electron-toolkit/utils";
-
-// Register privileged schemes
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "lightrailtrack",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      allowServiceWorkers: true,
-      bypassCSP: true,
-    },
-  },
-]);
+import path from 'node:path'
+import { is } from '@electron-toolkit/utils'
+import { createIPCHandler } from 'electron-trpc/main'
+import { getRouter } from './api'
 
 // Global variables
 process.env.APP_ROOT = path.join(__dirname, '..')
-let tray: Tray | null = null;
-let mainWindow: BrowserWindow;
+let tray: Tray | null = null
+let mainWindow: BrowserWindow
 
 function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-  // Create the browser window.
+
   mainWindow = new BrowserWindow({
     x: currentScreen.bounds.x,
     y: currentScreen.bounds.y,
@@ -54,39 +38,40 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-    },
-  });
+      nodeIntegration: true,
+      contextIsolation: true,
+      devTools: true
+    }
+  })
+  mainWindow.webContents.openDevTools()
+  // Set up tRPC handler
+  createIPCHandler({
+    router: getRouter(mainWindow),
+    windows: [mainWindow]
+  })
 
-
-  mainWindow.on("ready-to-show", () => {
-    console.info("Window ready to show");
-    mainWindow.show();
-    console.info("Window shown");
-  });
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
 
   if (!is.dev) {
-    mainWindow.on("blur", () => {
-      mainWindow.hide();
-      console.info("Window hidden");
-    });
+    mainWindow.on('blur', () => {
+      mainWindow.hide()
+    })
   }
 
-
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    console.info("Loading renderer from " + process.env["ELECTRON_RENDERER_URL"]);
-    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    console.info(
-      "Loading renderer from " + join(__dirname, "../renderer/index.html")
-    );
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
-
-function createTray() {
-  const icon = nativeImage.createFromPath(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
+function createTray(): void {
+  const icon = nativeImage.createFromPath(
+    path.join(process.env.VITE_PUBLIC || '', 'electron-vite.svg')
+  )
   tray = new Tray(icon)
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show', click: () => mainWindow?.show() },
@@ -96,8 +81,7 @@ function createTray() {
   tray.setContextMenu(contextMenu)
 }
 
-function toggleWindow() {
-  console
+function toggleWindow(): void {
   if (mainWindow?.isVisible()) {
     mainWindow.hide()
   } else {
@@ -106,18 +90,25 @@ function toggleWindow() {
   }
 }
 
+// App lifecycle
 app.whenReady().then(async () => {
+  // Register global shortcut
   globalShortcut.register('Alt+Space', toggleWindow)
+
+  // Initialize search database
   const userDataPath = app.getPath('userData')
   const searchDB = await SearchDB.getInstance(userDataPath)
-  searchDB.startIndexing(path.join(app.getPath('home'), 'alBERT'), (progress, status) => {
-    mainWindow?.webContents.send('indexing-progress', { progress, status })
-  }).catch(error => {
-    console.error('Error indexing directory:', error)
-  })
+  // Start indexing
+  searchDB
+    .startIndexing(path.join(app.getPath('home'), 'alBERT'), (progress, status) => {
+      mainWindow?.webContents.send('indexing-progress', { progress, status })
+    })
+    .catch((error) => {
+      console.error('Error indexing directory:', error)
+    })
+
   createWindow()
   createTray()
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -130,32 +121,20 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', async () => {
+  // Clean up
   globalShortcut.unregisterAll()
-
   WebScraperService.cleanup()
+
+  // Persist search database
   const userDataPath = app.getPath('userData')
   const searchDB = await SearchDB.getInstance(userDataPath)
   await searchDB.persist()
 })
 
-ipcMain.handle('fetch-document', async (_, filePath: string) => {
-  try {
-    const content = await parseFile(filePath);
-    return content;
-  } catch (error) {
-    console.error('Error reading file:', error);
-    throw error;
-  }
-});
-
-
-ipcMain.handle('search-files', async (_, searchTerm: string) => {
-  const userDataPath = app.getPath('userData');
-  const searchDB = await SearchDB.getInstance(userDataPath);
-  
-  // Get local results
-  const localResults = await searchDB.search(searchTerm);
-  
-  // Return local results immediately
-  return localResults;
-});
+// Handle external links
+app.on('web-contents-created', (_, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+})

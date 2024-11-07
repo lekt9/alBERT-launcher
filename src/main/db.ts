@@ -7,15 +7,17 @@ import * as workers from './worker-management'
 import { logger } from './utils/logger'
 import type { EmbeddedClient } from 'weaviate-ts-embedded'
 
+/* monkeypatch fetch to allow weaviate port */
+
 // Get the badPorts list from the original undici module.
-const badPorts = require("undici/lib/fetch/constants").badPorts;
+const badPorts = require('undici/lib/fetch/constants').badPorts
 // Remove envoy port
-const index = badPorts.indexOf("6666");
+const index = badPorts.indexOf('6666')
 if (index !== -1) {
-  badPorts.splice(index, 1);
+  badPorts.splice(index, 1)
 }
 // Replace global fetch with our monkeypatched fetch
-global.fetch = require("undici").fetch;
+global.fetch = require('undici').fetch
 interface FileIndex {
   [path: string]: string // path -> hash mapping
 }

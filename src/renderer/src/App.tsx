@@ -11,6 +11,7 @@ import { streamText } from 'ai'
 import ReactMarkdown from 'react-markdown'
 import { Switch } from '@/components/ui/switch'
 import { motion, AnimatePresence } from 'framer-motion';
+import { trpcClient } from './util/trpc-client'
 
 interface SearchResult {
   text: string
@@ -142,7 +143,7 @@ function App() {
         // const captureScreen = await window.ipcRenderer.invoke('capture-screen')
         
         // Get file search results only
-        const fileResults = await window.ipcRenderer.invoke('search-files', searchQuery)
+        const fileResults = await trpcClient.search.files.query(searchQuery)
         
         // Set results directly without AI option
         setSearchResults(fileResults)
@@ -196,7 +197,7 @@ function App() {
       
       await navigator.clipboard.writeText(contentToCopy);
       if (hideAfter) {
-        window.ipcRenderer.send('hide-window');
+        trpcClient.window.hide.mutate();
       }
     } catch (error) {
       console.error('Failed to copy:', error);
@@ -251,7 +252,7 @@ function App() {
     }
 
     try {
-      const content = await window.ipcRenderer.invoke('fetch-document', filePath);
+      const content = await trpcClient.document.fetch.query(filePath);
       if (content) {
         // Process the document content
         const processedContent = processDocumentContent(content, query);
@@ -410,7 +411,7 @@ Please provide a thorough but concise answer based on the provided context.`;
           setActivePanel('none')
           setShowSettings(false)
         } else {
-          window.ipcRenderer.send('hide-window')
+          trpcClient.window.hide.mutate();
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
@@ -524,7 +525,7 @@ Please provide a thorough but concise answer based on the provided context.`;
     if (e.target === e.currentTarget) {
       e.preventDefault() // Prevent losing focus
       inputRef.current?.focus()
-      window.ipcRenderer.send('hide-window')
+      trpcClient.window.hide.mutate();
     }
   }
 
@@ -812,9 +813,8 @@ Please provide a thorough but concise answer based on the provided context.`;
 
   const addToContext = async (result: SearchResult) => {
     try {
-      const content = await window.ipcRenderer.invoke('fetch-document', result.metadata.path);
+      const content = await trpcClient.document.fetch.query(result.metadata.path);
       setContextDocuments(prev => {
-        // Check if document is already in context
         if (prev.some(doc => doc.path === result.metadata.path)) {
           return prev;
         }
