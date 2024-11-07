@@ -27,7 +27,7 @@ mac:
       arch:
         - x64
         - arm64
-windows:
+win:
   artifactName: ${name}-win-${arch}.${ext}
   target:
     - target: nsis

@@ -24,6 +24,7 @@
     "@ai-sdk/openai": "^0.0.72",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@electron/notarize": "^2.5.0",
     "@hookform/resolvers": "^3.9.1",
     "@huggingface/transformers": "^3.0.2",
     "@radix-ui/react-accordion": "^1.2.1",
