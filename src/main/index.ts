@@ -1,112 +1,95 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, screen, ipcMain } from 'electron'
-import path from 'node:path'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  globalShortcut,
+  screen,
+  protocol,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain
+} from "electron";
+import  { join, resolve } from 'node:path'
 import { desktopCapturer } from 'electron'
 import SearchDB from './db'
 import chokidar from 'chokidar'
 import { homedir } from 'os'
 import { parseFile } from './utils/fileParser'
 import { WebScraperService } from './services/webScraper'
-import fs from 'fs'
+import path = require("node:path");
+import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 
+// Register privileged schemes
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "lightrailtrack",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      allowServiceWorkers: true,
+      bypassCSP: true,
+    },
+  },
+]);
+
+// Global variables
 process.env.APP_ROOT = path.join(__dirname, '..')
-export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
-export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
-export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
-  ? path.join(process.env.APP_ROOT, 'public')
-  : RENDERER_DIST
+let tray: Tray | null = null;
+let mainWindow: BrowserWindow;
 
-let win: BrowserWindow | null
-let tray: Tray | null
-const contextMemory: { hash: string; text: string }[] = []
-
-async function captureAndProcessScreen() {
-  const sources = await desktopCapturer.getSources({
-    types: ['screen'],
-    thumbnailSize: { width: 2560, height: 1440 }
-  })
-  const screenSource = sources[0]
-  const originalImage = screenSource.thumbnail.toPNG()
-  
-  // Convert PNG to native image for manipulation
-  const nativeImg = nativeImage.createFromBuffer(originalImage)
-  
-  // Get image data
-  const originalImageData = nativeImg.toBitmap()
-  const { width, height } = nativeImg.getSize()
-  
-  // Create new buffer for inverted image
-  const invertedData = Buffer.alloc(originalImageData.length)
-  
-  // Invert colors (each pixel is 4 bytes: RGBA)
-  for (let i = 0; i < originalImageData.length; i += 4) {
-    invertedData[i] = 255 - originalImageData[i]       // R
-    invertedData[i + 1] = 255 - originalImageData[i + 1] // G
-    invertedData[i + 2] = 255 - originalImageData[i + 2] // B
-    invertedData[i + 3] = originalImageData[i + 3]     // A (keep alpha unchanged)
-  }
-  
-  // Create new native image from inverted data
-  const invertedImage = nativeImage.createFromBitmap(invertedData, { width, height })
-  const invertedPNG = invertedImage.toPNG()
-  
-  const base64Image = `data:image/png;base64,${invertedPNG.toString('base64')}`
-
-  try {
-    const ocrWorker = await getOCRWorker()
-    return await ocrWorker.scan(base64Image)
-  } catch (error) {
-    console.error('Image processing or API error:', error)
-  }
-}
-
-function createWindow() {
+function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-  win = new BrowserWindow({
+  // Create the browser window.
+  mainWindow = new BrowserWindow({
     x: currentScreen.bounds.x,
     y: currentScreen.bounds.y,
     width: currentScreen.bounds.width,
     height: currentScreen.bounds.height,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    skipTaskbar: true,
     alwaysOnTop: true,
     focusable: true,
+    transparent: true,
+    frame: false,
+    show: false,
+    autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true
+      preload: join(__dirname, "../preload/index.js"),
+      sandbox: false,
     },
-  })
+  });
 
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL)
-  } else {
-    const htmlPath = path.join(RENDERER_DIST, 'index.html')
-    if (fs.existsSync(htmlPath)) {
-      win.loadFile(htmlPath)
-    } else {
-      console.error(`Cannot find ${htmlPath}`)
-    }
+
+  mainWindow.on("ready-to-show", () => {
+    console.info("Window ready to show");
+    mainWindow.show();
+    console.info("Window shown");
+  });
+
+  if (!is.dev) {
+    mainWindow.on("blur", () => {
+      mainWindow.hide();
+      console.info("Window hidden");
+    });
   }
 
-  ipcMain.on('hide-window', () => {
-    win?.hide()
-  })
 
-  ipcMain.handle('capture-screen', async () => {
-    await captureAndProcessScreen()
-    return contextMemory.map(item => item.text).join('\n\n') // Return concatenated contexts
-  })
+  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    console.info("Loading renderer from " + process.env["ELECTRON_RENDERER_URL"]);
+    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+  } else {
+    console.info(
+      "Loading renderer from " + join(__dirname, "../renderer/index.html")
+    );
+    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+  }
 }
 
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
   tray = new Tray(icon)
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show', click: () => win?.show() },
+    { label: 'Show', click: () => mainWindow?.show() },
     { label: 'Quit', click: () => app.quit() }
   ])
   tray.setToolTip('Your App Name')
@@ -114,23 +97,23 @@ function createTray() {
 }
 
 function toggleWindow() {
-  if (win?.isVisible()) {
-    win.hide()
+  console
+  if (mainWindow?.isVisible()) {
+    mainWindow.hide()
   } else {
-    win?.show()
-    win?.focus()
-    win?.webContents.send('run-ocr')
+    mainWindow?.show()
+    mainWindow?.focus()
   }
 }
 
 app.whenReady().then(async () => {
+  globalShortcut.register('Alt+Space', toggleWindow)
   createWindow()
   createTray()
-  globalShortcut.register('Alt+Space', toggleWindow)
   const userDataPath = app.getPath('userData')
   const searchDB = await SearchDB.getInstance(userDataPath)
   await searchDB.startIndexing(path.join(app.getPath('home'), 'alBERT'), (progress, status) => {
-    win?.webContents.send('indexing-progress', { progress, status })
+    mainWindow?.webContents.send('indexing-progress', { progress, status })
   })
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
