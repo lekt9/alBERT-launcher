@@ -61,6 +61,29 @@ interface AIResponse {
   timestamp: number
 }
 
+// Add these utility functions at the top level
+function calculateStandardDeviation(numbers: number[]): number {
+  const mean = numbers.reduce((acc, val) => acc + val, 0) / numbers.length
+  const squareDiffs = numbers.map(value => Math.pow(value - mean, 2))
+  const avgSquareDiff = squareDiffs.reduce((acc, val) => acc + val, 0) / numbers.length
+  return Math.sqrt(avgSquareDiff)
+}
+
+function highlightMatches(text: string, query: string): string {
+  // Split query into words and filter out empty strings
+  const queryWords = query.trim().split(/\s+/).filter(word => word.length > 0)
+  
+  // Create a regex pattern that matches any of the query words
+  const pattern = new RegExp(`(${queryWords.map(word => escapeRegExp(word)).join('|')})`, 'g')
+  
+  // Replace matches with bold markdown
+  return text.replace(pattern, '**$1**')
+}
+
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function App() {
   const [query, setQuery] = useState('')
   const [showResults, setShowResults] = useState(false)
@@ -142,14 +165,43 @@ function App() {
       }
       setIsLoading(true)
       try {
-        // Get screen context
-        // const captureScreen = await window.ipcRenderer.invoke('capture-screen')
-
-        // Get file search results only
         const fileResults = await trpcClient.search.files.query(searchQuery)
+        
+        // Process each search result to chunk and filter content
+        const processedResults = fileResults.map(result => {
+          // Split the content into smaller chunks
+          const chunks = splitContent(result.text, 500, 20)
+          
+          // Calculate relevance scores and store original index for each chunk
+          const chunkScores = chunks.map((chunk, index) => ({
+            text: chunk,
+            score: calculateSimilarity(chunk, searchQuery),
+            index: index // Store original position for reference
+          }))
+          
+          // Calculate mean and standard deviation of scores
+          const scores = chunkScores.map(c => c.score)
+          const mean = scores.reduce((acc, val) => acc + val, 0) / scores.length
+          const stdDev = calculateStandardDeviation(scores)
+          
+          // Filter chunks that are in the top standard deviation,
+          // sort by relevance score (highest first),
+          // take top 3, then sort by original position
+          const significantChunks = chunkScores
+            .filter(chunk => chunk.score > mean + stdDev)
+            .sort((a, b) => b.score - a.score) // Sort by relevance score (descending)
+            .sort((a, b) => a.index - b.index) // Re-sort by original position for display
+            .map(chunk => highlightMatches(chunk.text, searchQuery)) // Highlight matches
+            .join('\n\n---\n\n') // Add markdown separator between chunks
+          
+          // Return modified result with filtered content
+          return {
+            ...result,
+            text: significantChunks || highlightMatches(result.text, searchQuery) // Fallback to original if no chunks pass filter
+          }
+        })
 
-        // Set results directly without AI option
-        setSearchResults(fileResults)
+        setSearchResults(processedResults)
         setShowResults(true)
       } catch (error) {
         console.error('Search failed:', error)
@@ -365,7 +417,7 @@ function App() {
     }
   }
 
-  // Modify the askAIQuestion function to wait for search results
+  // Modify the askAIQuestion function to properly handle context
   const askAIQuestion = async (prompt: string) => {
     if (!showResults || searchResults.length === 0) {
       console.warn('Search results are not ready yet.')
@@ -374,6 +426,21 @@ function App() {
 
     setIsLoading(true)
     try {
+      // Build context from either selected documents or search results
+      let contextContent = ''
+      
+      if (contextDocuments.length > 0) {
+        // If we have context documents, use those
+        contextContent = contextDocuments
+          .map(doc => `From ${doc.path}:\n${doc.content}`)
+          .join('\n\n')
+      } else {
+        // Otherwise, use search results
+        contextContent = searchResults
+          .map(result => `From ${result.metadata.path}:\n${result.text}`)
+          .join('\n\n')
+      }
+
       // Create base model
       const provider =
         currentSettings.modelType === 'openai'
@@ -388,9 +455,9 @@ function App() {
 
       const baseModel = provider(currentSettings.model)
 
-      // Create context middleware
+      // Create context middleware with the proper context
       const contextMiddleware = createContextMiddleware({
-        getContext: () => combinedContext
+        getContext: () => contextContent
       })
 
       // Wrap model with middleware
@@ -402,14 +469,17 @@ function App() {
       // Stream response with wrapped model
       const textStream = await streamText({
         model,
-        prompt: `${
-          currentConversation
-            ? `Previous question: ${currentConversation.question}
+        prompt: `Use the following context to answer the question. If the context doesn't contain relevant information, say so. Reply in a punchy manner, using markdown formatting without the codeblocks.
+
+Context:
+${contextContent}
+
+${currentConversation ? `Previous question: ${currentConversation.question}
 Previous answer: ${currentConversation.answer}
 
-`
-            : ''
-        }${prompt}`
+` : ''}Question: ${prompt}
+
+Answer:`
       })
 
       // Initialize empty response with timestamp
@@ -583,8 +653,6 @@ Previous answer: ${currentConversation.answer}
 
   const handleBackgroundClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      e.preventDefault() // Prevent losing focus
-      inputRef.current?.focus()
       trpcClient.window.hide.mutate()
     }
   }
@@ -618,6 +686,12 @@ Previous answer: ${currentConversation.answer}
   // Create a Settings component similar to ChatView
   const SettingsView = () => {
     const [localSettings, setLocalSettings] = useState<LLMSettings>(currentSettings)
+    const baseUrlRef = useRef<HTMLInputElement>(null)
+
+    // Auto-focus the first input in settings when opened
+    useEffect(() => {
+      baseUrlRef.current?.focus()
+    }, [])
 
     const handlePrivacyToggle = (checked: boolean) => {
       setIsPrivate(checked)
@@ -635,7 +709,7 @@ Previous answer: ${currentConversation.answer}
     }
 
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Settings</h2>
           <button
@@ -665,6 +739,7 @@ Previous answer: ${currentConversation.answer}
               Base URL
             </label>
             <Input
+              ref={baseUrlRef}
               id="baseUrl"
               value={localSettings.baseUrl}
               onChange={(e) =>
@@ -881,11 +956,25 @@ Previous answer: ${currentConversation.answer}
     }
   }
 
+  // Simplified input blur handler
+  const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    // Only refocus search if we're not in settings
+    if (activePanel !== 'settings' && !e.relatedTarget?.matches('input, textarea, button')) {
+      e.target.focus()
+    }
+  }
+
+  // Simplified focus management
+  useEffect(() => {
+    if (activePanel !== 'settings' && !showDocument) {
+      inputRef.current?.focus()
+    }
+  }, [activePanel, showDocument])
+
   return (
     <div
       className="h-screen w-screen flex items-center justify-center bg-black/20 backdrop-blur-sm"
       onClick={handleBackgroundClick}
-      onMouseDown={(e) => e.preventDefault()} // Prevent focus loss on container click
     >
       <div className="flex flex-col">
         <div className="flex gap-4 transition-all duration-200">
@@ -894,7 +983,6 @@ Previous answer: ${currentConversation.answer}
             <Card
               className="bg-white/95 shadow-2xl flex flex-col transition-all duration-200"
               style={{ width: getPanelWidth() }}
-              onMouseDown={(e) => e.preventDefault()} // Prevent focus loss on card click
             >
               <CardContent className="p-4 flex flex-col h-full max-h-[600px]">
                 <SettingsView />
@@ -906,7 +994,6 @@ Previous answer: ${currentConversation.answer}
           <Card
             className="bg-white/95 shadow-2xl flex flex-col transition-all duration-200"
             style={{ width: getPanelWidth() }}
-            onMouseDown={(e) => e.preventDefault()} // Prevent focus loss on card click
           >
             <CardContent className="p-0 flex-1 flex flex-col h-[600px]">
               <div className="flex flex-col h-full">
@@ -974,12 +1061,7 @@ Previous answer: ${currentConversation.answer}
                         currentConversation ? 'Ask a follow-up question...' : 'Search...'
                       }
                       className="w-full pl-12 pr-24 py-4 text-xl border-none focus-visible:ring-0 rounded-none"
-                      autoFocus
-                      onBlur={(e) => {
-                        if (!e.relatedTarget?.matches('input, textarea')) {
-                          e.target.focus()
-                        }
-                      }}
+                      onBlur={handleInputBlur}
                     />
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                       <div className="flex items-center gap-2">
