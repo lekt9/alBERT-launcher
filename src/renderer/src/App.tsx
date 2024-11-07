@@ -87,7 +87,7 @@ function App() {
       : {
           baseUrl: 'http://localhost:11434/v1',
           apiKey: '',
-          model: 'llama3.2:3b',
+          model: 'llama3.2:1b',
           modelType: 'ollama'
         }
   })
@@ -706,7 +706,7 @@ Previous answer: ${currentConversation.answer}
                   model: e.target.value
                 }))
               }
-              placeholder={isPrivate ? 'llama3.2:3b' : 'gpt-4o-mini'}
+              placeholder={isPrivate ? 'llama3.2:1b' : 'gpt-4o-mini'}
             />
           </div>
         </div>
@@ -736,23 +736,6 @@ Previous answer: ${currentConversation.answer}
     )
   }
 
-  // Create a helper function to get the configured model
-  const getConfiguredModel = () => {
-    if (currentSettings.modelType === 'openai') {
-      const provider = createOpenAI({
-        apiKey: currentSettings.apiKey,
-        baseUrl: currentSettings.baseUrl
-      })
-      return provider(currentSettings.model)
-    } else {
-      const provider = createOpenAI({
-        apiKey: currentSettings.apiKey,
-        baseUrl: 'http://localhost:11434/v1'
-      })
-      return provider(currentSettings.model)
-    }
-  }
-
   const handlePrivacyToggle = (checked: boolean) => {
     setIsPrivate(checked)
     localStorage.setItem('llm-privacy', JSON.stringify(checked))
@@ -766,7 +749,7 @@ Previous answer: ${currentConversation.answer}
           : {
               baseUrl: 'http://localhost:11434/v1',
               apiKey: '',
-              model: 'llama3.2:3b',
+              model: 'llama3.2:1b',
               modelType: 'ollama'
             }
       )

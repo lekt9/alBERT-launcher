@@ -35,14 +35,14 @@ win:
     - target: nsis
       arch:
         - x64
-        - ia32
   icon: build/icon.ico
   publisherName: alBERT
 linux:
   artifactName: ${name}.${ext}
   target:
     - deb
-    - rpm
+    arch:
+      - x64
   maintainer: electronjs.org
   category: Utility
 publish:
