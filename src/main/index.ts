@@ -43,7 +43,7 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.webContents.openDevTools()
+  // mainWindow.webContents.openDevTools()
   // Set up tRPC handler
   createIPCHandler({
     router: getRouter(mainWindow),
@@ -86,10 +86,18 @@ function createTray(): void {
   tray = new Tray(icon)
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show', click: () => mainWindow?.show() },
+    { label: 'Open alBERT Folder', click: openAlBERTFolder },
     { label: 'Quit', click: () => app.quit() }
   ])
   tray.setToolTip('Your App Name')
   tray.setContextMenu(contextMenu)
+}
+
+function openAlBERTFolder(): void {
+  const alBERTPath = path.join(app.getPath('home'), 'alBERT')
+  shell.openPath(alBERTPath).catch((error) => {
+    console.error('Failed to open alBERT folder:', error)
+  })
 }
 
 function toggleWindow(): void {

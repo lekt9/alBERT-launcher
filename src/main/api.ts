@@ -1,9 +1,10 @@
 import { initTRPC } from '@trpc/server'
 import { z } from 'zod'
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, shell } from 'electron'
 import SearchDB from './db'
 import { parseFile } from './utils/fileParser'
 import log from './logger'
+import path from 'node:path'
 
 const t = initTRPC.create({
   isServer: true
@@ -69,6 +70,17 @@ export const getRouter = (window: BrowserWindow) =>
           log.info('tRPC Call: indexing.progress')
           window.webContents.send('indexing-progress', input)
         })
+    }),
+
+    // Add this new procedure to open the alBERT folder
+    folder: t.router({
+      openAlBERT: t.procedure.mutation(() => {
+        log.info('tRPC Call: folder.openAlBERT')
+        const alBERTPath = path.join(app.getPath('home'), 'alBERT')
+        shell.openPath(alBERTPath).catch((error) => {
+          log.error('Failed to open alBERT folder:', error)
+        })
+      })
     })
   })
 
