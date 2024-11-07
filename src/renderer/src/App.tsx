@@ -7,11 +7,12 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn, splitContent } from '@/lib/utils'
 
 import { createOpenAI } from '@ai-sdk/openai'
-import { streamText } from 'ai'
+import { streamText, experimental_wrapLanguageModel as wrapLanguageModel } from 'ai'
 import ReactMarkdown from 'react-markdown'
 import { Switch } from '@/components/ui/switch'
 import { motion, AnimatePresence } from 'framer-motion';
 import { trpcClient } from './util/trpc-client'
+import { createContextMiddleware } from '@/lib/context-middleware';
 
 interface SearchResult {
   text: string
@@ -344,25 +345,38 @@ function App() {
   const askAIQuestion = async (prompt: string) => {
     setIsLoading(true);
     try {
-      // const captureScreen = await window.ipcRenderer.invoke('capture-screen');
-      
-      const fullPrompt = `
-${currentConversation ? `Previous question: ${currentConversation.question}
-Previous answer: ${currentConversation.answer}
+      // Create base model
+      const provider = currentSettings.modelType === 'openai' 
+        ? createOpenAI({
+            apiKey: currentSettings.apiKey,
+            baseUrl: currentSettings.baseUrl,
+          })
+        : createOpenAI({
+            apiKey: currentSettings.apiKey,
+            baseUrl: 'http://localhost:11434/v1',
+          });
 
-` : ''}Context from documents:
-${combinedContext}
+      const baseModel = provider(currentSettings.model);
 
-Question: ${prompt}
+      // Create context middleware
+      const contextMiddleware = createContextMiddleware({
+        getContext: () => combinedContext
+      });
 
-Please provide a thorough but concise answer based on the provided context.`;
+      // Wrap model with middleware
+      const model = wrapLanguageModel({
+        model: baseModel,
+        middleware: contextMiddleware,
+      });
 
-      const model = getConfiguredModel();
+      // Stream response with wrapped model
       const textStream = await streamText({
         model,
-        messages: [
-          { role: 'user', content: fullPrompt }
-        ],
+        prompt: `${currentConversation ? 
+          `Previous question: ${currentConversation.question}
+Previous answer: ${currentConversation.answer}
+
+` : ''}${prompt}`,
       });
 
       // Initialize empty response with timestamp

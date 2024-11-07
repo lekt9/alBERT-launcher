@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ['weaviate-ts-embedded']
+        exclude: ['weaviate-ts-embedded', 'sharp']
       })
     ],
     build: {

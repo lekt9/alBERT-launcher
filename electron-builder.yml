@@ -3,6 +3,8 @@ productName: alBERT
 directories:
   buildResources: build
 files:
+  - "**/*"
+  - "node_modules/sharp/vendor/*"
   - "!**/.vscode/*"
   - "!src/*"
   - "!electron.vite.config.{js,ts,mjs,cjs}"
