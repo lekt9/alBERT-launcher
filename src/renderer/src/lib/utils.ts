@@ -1,10 +1,10 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { trpcClient } from '../trpcClient'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
-
 
 type Split = {
   text: string
@@ -30,10 +30,8 @@ export class SentenceSplitter {
       this.chunkSize = params.chunkSize ?? this.chunkSize
       this.chunkOverlap = params.chunkOverlap ?? this.chunkOverlap
       this.separator = params.separator ?? this.separator
-      this.paragraphSeparator =
-        params.paragraphSeparator ?? this.paragraphSeparator
-      this.secondaryChunkingRegex =
-        params.secondaryChunkingRegex ?? this.secondaryChunkingRegex
+      this.paragraphSeparator = params.paragraphSeparator ?? this.paragraphSeparator
+      this.secondaryChunkingRegex = params.secondaryChunkingRegex ?? this.secondaryChunkingRegex
     }
   }
 
@@ -63,9 +61,7 @@ export class SentenceSplitter {
     return textSplits
   }
 
-  private getSplitsByFns(
-    text: string
-  ): [splits: string[], isSentence: boolean] {
+  private getSplitsByFns(text: string): [splits: string[], isSentence: boolean] {
     const paragraphSplits = text.split(this.paragraphSeparator)
     if (paragraphSplits.length > 1) {
       return [paragraphSplits, true]
@@ -76,9 +72,7 @@ export class SentenceSplitter {
       return [sentenceSplits, true]
     }
 
-    const subSentenceSplits = text.match(
-      new RegExp(this.secondaryChunkingRegex, 'g')
-    ) || [text]
+    const subSentenceSplits = text.match(new RegExp(this.secondaryChunkingRegex, 'g')) || [text]
     if (subSentenceSplits.length > 1) {
       return [subSentenceSplits, false]
     }
@@ -106,10 +100,7 @@ export class SentenceSplitter {
       newChunk = true
 
       let lastIndex = lastChunk.length - 1
-      while (
-        lastIndex >= 0 &&
-        currentChunkLength + lastChunk[lastIndex]![1] <= this.chunkOverlap
-      ) {
+      while (lastIndex >= 0 && currentChunkLength + lastChunk[lastIndex]![1] <= this.chunkOverlap) {
         const [text, length] = lastChunk[lastIndex]!
         currentChunkLength += length
         currentChunk.unshift([text, length])
@@ -148,7 +139,7 @@ export class SentenceSplitter {
   }
 
   private postprocessChunks(chunks: string[]): string[] {
-    return chunks.map(chunk => chunk.trim()).filter(chunk => chunk !== '')
+    return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk !== '')
   }
 
   private tokenSize(text: string): number {
@@ -176,11 +167,11 @@ export function timeout<T>(ms: number, promise: Promise<T>): Promise<T> {
     }, ms)
 
     promise
-      .then(value => {
+      .then((value) => {
         clearTimeout(timer)
         resolve(value)
       })
-      .catch(reason => {
+      .catch((reason) => {
         clearTimeout(timer)
         reject(reason)
       })
@@ -189,59 +180,67 @@ export function timeout<T>(ms: number, promise: Promise<T>): Promise<T> {
 
 // src/renderer/src/lib/utils.ts
 export function debounce<F extends (...args: any[]) => void>(func: F, waitFor: number) {
-  let timeout: NodeJS.Timeout;
+  let timeout: NodeJS.Timeout
 
   const debounced = (...args: Parameters<F>) => {
     if (timeout) {
-      clearTimeout(timeout);
+      clearTimeout(timeout)
     }
-    timeout = setTimeout(() => func(...args), waitFor);
-  };
+    timeout = setTimeout(() => func(...args), waitFor)
+  }
 
-  return debounced;
+  return debounced
 }
 
-/**
- * Calculates text similarity score between two strings using word overlap
- */
-export function calculateSimilarity(text1: string, text2: string): number {
-  // Convert to lowercase and split into words
-  const words1 = new Set(text1.toLowerCase().split(/\s+/));
-  const words2 = new Set(text2.toLowerCase().split(/\s+/));
+// Add cosine similarity helper function
+export function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) {
+    throw new Error('Vectors must have same length')
+  }
 
-  // Calculate intersection
-  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  let dotProduct = 0
+  let normA = 0
+  let normB = 0
 
-  // Calculate Jaccard similarity coefficient
-  const union = new Set([...words1, ...words2]);
-  
-  if (union.size === 0) return 0;
-  return intersection.size / union.size;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+
+  normA = Math.sqrt(normA)
+  normB = Math.sqrt(normB)
+
+  if (normA === 0 || normB === 0) {
+    return 0
+  }
+
+  return dotProduct / (normA * normB)
 }
 
 /**
  * Calculates standard deviation of a number array
  */
 export function calculateStandardDeviation(numbers: number[]): number {
-  const mean = numbers.reduce((acc, val) => acc + val, 0) / numbers.length;
-  const squareDiffs = numbers.map(value => Math.pow(value - mean, 2));
-  const avgSquareDiff = squareDiffs.reduce((acc, val) => acc + val, 0) / numbers.length;
-  return Math.sqrt(avgSquareDiff);
+  const mean = numbers.reduce((acc, val) => acc + val, 0) / numbers.length
+  const squareDiffs = numbers.map((value) => Math.pow(value - mean, 2))
+  const avgSquareDiff = squareDiffs.reduce((acc, val) => acc + val, 0) / numbers.length
+  return Math.sqrt(avgSquareDiff)
 }
 
 /**
  * Highlights matching words in text
  */
 export function highlightMatches(text: string, query: string): string {
-  const queryWords = query.toLowerCase().trim().split(/\s+/);
-  const textWords = text.split(/(\s+)/);
-  
+  const queryWords = query.toLowerCase().trim().split(/\s+/)
+  const textWords = text.split(/(\s+)/)
+
   return textWords
-    .map(word => {
+    .map((word) => {
       if (queryWords.includes(word.toLowerCase())) {
-        return `**${word}**`;
+        return `**${word}**`
       }
-      return word;
+      return word
     })
-    .join('');
+    .join('')
 }

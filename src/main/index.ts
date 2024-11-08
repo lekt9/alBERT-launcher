@@ -14,7 +14,7 @@ import path from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import { createIPCHandler } from 'electron-trpc/main'
 import { getRouter } from './api'
-
+console.log(app.getPath('crashDumps'))
 // Global variables
 process.env.APP_ROOT = path.join(__dirname, '..')
 let tray: Tray | null = null

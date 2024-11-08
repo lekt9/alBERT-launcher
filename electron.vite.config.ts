@@ -13,7 +13,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          vectorizer: resolve(__dirname, 'src/main/vectorizer-worker.ts')
+          vectorizer: resolve(__dirname, 'src/main/vectorizer-worker.ts'),
+          reranker: resolve(__dirname, 'src/main/reranker-worker.ts')
         }
       }
     }

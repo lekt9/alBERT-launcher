@@ -1,14 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { trpcClient } from './util/trpc-client'
-import {
-  splitContent,
-  calculateSimilarity,
-  cn,
-  calculateStandardDeviation,
-  highlightMatches
-} from '@/lib/utils'
-import { debounce } from '@/lib/utils'
+import { splitContent, cn, calculateStandardDeviation, highlightMatches } from '@/lib/utils'
 import SearchBar from '@/components/SearchBar'
 import AIResponseCard from '@/components/AIResponseCard'
 import SearchResults from '@/components/SearchResults'
@@ -16,7 +9,11 @@ import ContextTabs from '@/components/ContextTabs'
 const SettingsPanel = React.lazy(() => import('@/components/SettingsPanel'))
 const DocumentViewer = React.lazy(() => import('@/components/DocumentViewer'))
 import { KeyboardShortcuts } from '@/components/navigation/KeyboardShortcuts'
-import { streamText, experimental_wrapLanguageModel as wrapLanguageModel } from 'ai'
+import {
+  cosineSimilarity,
+  streamText,
+  experimental_wrapLanguageModel as wrapLanguageModel
+} from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createContextMiddleware } from './lib/context-middleware'
 import { LLMSettings, ContextTab } from './types'
@@ -43,7 +40,18 @@ interface AIResponse {
   timestamp: number
 }
 
-function App() {
+// Add custom Document interface at the top with other interfaces
+interface CustomDocument {
+  path: string
+  content: string
+  metadata?: {
+    type: string
+    lastModified: number
+    matchScore?: number
+  }
+}
+
+function App(): JSX.Element {
   // State Definitions
   const [query, setQuery] = useState<string>('')
   const [showResults, setShowResults] = useState<boolean>(false)
@@ -85,7 +93,7 @@ function App() {
   )
 
   const [currentConversation, setCurrentConversation] = useState<AIResponse | null>(null)
-  const [contextDocuments, setContextDocuments] = useState<Document[]>([])
+  const [contextDocuments, setContextDocuments] = useState<CustomDocument[]>([])
   const [hoveredCardPath, setHoveredCardPath] = useState<string | null>(null)
 
   const [contextTabs, setContextTabs] = useState<ContextTab[]>([])
@@ -99,7 +107,7 @@ function App() {
 
   // Add this near your other useMemo hooks
   const combinedSearchContext = useMemo(() => {
-    const MAX_CONTEXT_LENGTH = 40000
+    const MAX_CONTEXT_LENGTH = 50000
     const CHUNK_SIZE = 500
     const CHUNK_OVERLAP = 20
 
@@ -174,29 +182,53 @@ function App() {
       setIsLoading(true)
       try {
         const fileResults = await trpcClient.search.all.query(searchQuery)
+        
+        // Collect all chunks from all results first
+        const allChunksWithMetadata = fileResults.flatMap(result => {
+          const chunks = splitContent(result.text, 300, 20)
+          return chunks.map((chunk, index) => ({
+            chunk,
+            resultIndex: fileResults.indexOf(result),
+            chunkIndex: index,
+            originalResult: result
+          }))
+        })
 
-        const processedResults = fileResults.map((result) => {
-          const chunks = splitContent(result.text, 500, 20)
-          const chunkScores = chunks.map((chunk, index) => ({
-            text: chunk,
-            score: calculateSimilarity(chunk, searchQuery),
-            index
+        // Get all chunks for reranking
+        const allChunks = allChunksWithMetadata.map(item => item.chunk)
+        
+        // Add the query as the first item for reranking
+        const textsToRerank = [searchQuery, ...allChunks]
+        
+        // Rerank all chunks against the query
+        const rerankedScores = await trpcClient.embeddings.rerank.query(textsToRerank)
+        
+        // Process results using the reranked scores
+        // Note: First score is query-query similarity, so we skip it
+        const processedResults = fileResults.map((result, resultIndex) => {
+          const resultChunks = allChunksWithMetadata.filter(item => item.resultIndex === resultIndex)
+          const chunkScores = resultChunks.map((item, i) => ({
+            text: item.chunk,
+            // Add 1 to skip the query-query similarity score
+            score: rerankedScores[allChunksWithMetadata.indexOf(item) + 1][0],
+            index: item.chunkIndex
           }))
 
-          const scores = chunkScores.map((c) => c.score)
+          const scores = chunkScores.map(c => c.score)
           const mean = scores.reduce((acc, val) => acc + val, 0) / scores.length
           const stdDev = calculateStandardDeviation(scores)
 
           const significantChunks = chunkScores
-            .filter((chunk) => chunk.score > mean + stdDev)
+            .filter(chunk => chunk.score > mean + stdDev)
             .sort((a, b) => b.score - a.score)
             .sort((a, b) => a.index - b.index)
-            .map((chunk) => highlightMatches(chunk.text, searchQuery))
+            .map(chunk => highlightMatches(chunk.text, searchQuery))
             .join('\n\n---\n\n')
 
           return {
             ...result,
-            text: significantChunks || highlightMatches(result.text, searchQuery)
+            text: significantChunks || highlightMatches(result.text, searchQuery),
+            dist: 1 - Math.max(...scores) // Convert score to distance
           }
         })
 
@@ -237,7 +269,7 @@ function App() {
 
   // Add cleanup effect
   useEffect(() => {
-    return () => {
+    return (): void => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current)
       }
@@ -285,8 +317,6 @@ function App() {
       try {
         const content = await trpcClient.document.fetch.query(filePath)
         if (content) {
-          const matchScore = calculateSimilarity(content, query)
-
           // Update contextTabs
           setContextTabs((prev) => {
             const exists = prev.some((tab) => tab.path === filePath)
@@ -299,8 +329,7 @@ function App() {
                   isExpanded: false,
                   metadata: {
                     type: 'file',
-                    lastModified: Date.now(),
-                    matchScore
+                    lastModified: Date.now()
                   }
                 }
               ]
@@ -337,7 +366,11 @@ function App() {
             ...prev,
             {
               path: `AI Response (${new Date(currentConversation.timestamp).toLocaleTimeString()})`,
-              content: aiResponseContent
+              content: aiResponseContent,
+              metadata: {
+                type: 'ai_response',
+                lastModified: Date.now()
+              }
             }
           ]
         }
@@ -437,7 +470,7 @@ Answer:`
 
   // Keyboard Event Handler
   const handleKeyDown = useCallback(
-    async (e: KeyboardEvent) => {
+    async (e: KeyboardEvent): Promise<void> => {
       if (e.key === 'Escape') {
         e.preventDefault()
         if (activePanel === 'settings') {
@@ -549,7 +582,7 @@ Answer:`
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return (): void => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
   // Scroll into view for selected search result
@@ -564,12 +597,12 @@ Answer:`
   }, [activePanel, showResults])
 
   useEffect(() => {
-    const handleWindowShow = () => {
+    const handleWindowShow = (): void => {
       searchBarRef.current?.focus()
     }
 
     window.addEventListener('focus', handleWindowShow)
-    return () => window.removeEventListener('focus', handleWindowShow)
+    return (): void => window.removeEventListener('focus', handleWindowShow)
   }, [])
 
   return (
@@ -662,8 +695,8 @@ Answer:`
             <Suspense fallback={<div>Loading Document Viewer...</div>}>
               <DocumentViewer
                 contextDocuments={contextDocuments}
-                removeFromContext={(path) => {
-                  // Logic to remove context
+                removeFromContext={(path: string) => {
+                  setContextDocuments(prev => prev.filter(doc => doc.path !== path))
                 }}
                 hoveredCardPath={hoveredCardPath}
                 setHoveredCardPath={setHoveredCardPath}

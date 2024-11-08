@@ -6,7 +6,7 @@ import SearchDB from './db'
 import log from './logger'
 import path from 'node:path'
 import { readContent } from './utils/reader'
-import { embed } from './embeddings'
+import { embed, rerank } from './embeddings'
 
 const t = initTRPC.create({
   isServer: true
@@ -31,6 +31,23 @@ export const getRouter = (window: BrowserWindow) => {
       })
     }),
 
+    embeddings: router({
+      embed: t.procedure
+        .input(z.union([z.string(), z.array(z.string())]))
+        .query(async ({ input }) => {
+          const textArray = Array.isArray(input) ? input : [input]
+          const results = await embed(textArray)
+          return Array.isArray(input) ? results : results[0]
+        }),
+      rerank: t.procedure
+        .input(z.union([z.string(), z.array(z.string())]))
+        .query(async ({ input }) => {
+          const textArray = Array.isArray(input) ? input : [input]
+          const results = await rerank(textArray)
+          return Array.isArray(input) ? results : results[0]
+        })
+    }),
+
     search: router({
       all: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
         log.info('tRPC Call: search.all')
@@ -48,13 +65,11 @@ export const getRouter = (window: BrowserWindow) => {
             return []
           }
 
-          const searchEmbedding = await embed(searchTerm)
+          const allTexts = [searchTerm, ...combinedResults.map(r => r.text)]
+          const allEmbeddings = await embed(allTexts)
 
-          // for loop so not duplicate results
-          const resultEmbeddings: number[][] = []
-          for (const result of combinedResults) {
-            resultEmbeddings.push(await embed(result.text))
-          }
+          const searchEmbedding = allEmbeddings[0]
+          const resultEmbeddings = allEmbeddings.slice(1)
 
           const rankedResults = combinedResults.map((result, index) => ({
             ...result,

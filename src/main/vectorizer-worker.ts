@@ -20,14 +20,18 @@ async function initializeEmbedder() {
   }
 }
 
-async function generateEmbedding(text: string): Promise<number[]> {
+async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   try {
     await initializeEmbedder();
-    const output = await embedder(text, {
+    
+    // Process all texts in a single batch
+    const outputs = await embedder(texts, {
       pooling: 'mean',
-      normalize: true
+      normalize: true,
     });
-    return output.tolist()[0];
+
+    // Convert outputs to array format
+    return outputs.tolist();
   } catch (error) {
     console.error('Embedding generation error:', error);
     throw error;
@@ -35,21 +39,32 @@ async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 if (parentPort) {
-  console.log("Embeddings worker initialized");
-  
+  console.log('Embeddings worker initialized');
+
   parentPort.on('message', async (message) => {
     if (message.type === 'embed') {
       try {
-        const embedding = await generateEmbedding(message.text);
-        parentPort?.postMessage({ type: 'result', embedding });
+        let textToEmbed = message.text;
+        if (typeof message.text === 'string') {
+          try {
+            const parsed = JSON.parse(message.text);
+            if (Array.isArray(parsed)) {
+              textToEmbed = parsed;
+            }
+          } catch {
+            // Not JSON, use original string
+          }
+        }
+        const embeddings = await generateEmbeddings(textToEmbed);
+        parentPort?.postMessage({ type: 'result', embeddings });
       } catch (error) {
-        parentPort?.postMessage({ 
-          type: 'error', 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        parentPort?.postMessage({
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     }
   });
 }
 
-export type {} // Keep TypeScript happy 
+export type {} // Keep TypeScript happy
