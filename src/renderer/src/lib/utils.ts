@@ -186,3 +186,62 @@ export function timeout<T>(ms: number, promise: Promise<T>): Promise<T> {
       })
   })
 }
+
+// src/renderer/src/lib/utils.ts
+export function debounce<F extends (...args: any[]) => void>(func: F, waitFor: number) {
+  let timeout: NodeJS.Timeout;
+
+  const debounced = (...args: Parameters<F>) => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    timeout = setTimeout(() => func(...args), waitFor);
+  };
+
+  return debounced;
+}
+
+/**
+ * Calculates text similarity score between two strings using word overlap
+ */
+export function calculateSimilarity(text1: string, text2: string): number {
+  // Convert to lowercase and split into words
+  const words1 = new Set(text1.toLowerCase().split(/\s+/));
+  const words2 = new Set(text2.toLowerCase().split(/\s+/));
+
+  // Calculate intersection
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+
+  // Calculate Jaccard similarity coefficient
+  const union = new Set([...words1, ...words2]);
+  
+  if (union.size === 0) return 0;
+  return intersection.size / union.size;
+}
+
+/**
+ * Calculates standard deviation of a number array
+ */
+export function calculateStandardDeviation(numbers: number[]): number {
+  const mean = numbers.reduce((acc, val) => acc + val, 0) / numbers.length;
+  const squareDiffs = numbers.map(value => Math.pow(value - mean, 2));
+  const avgSquareDiff = squareDiffs.reduce((acc, val) => acc + val, 0) / numbers.length;
+  return Math.sqrt(avgSquareDiff);
+}
+
+/**
+ * Highlights matching words in text
+ */
+export function highlightMatches(text: string, query: string): string {
+  const queryWords = query.toLowerCase().trim().split(/\s+/);
+  const textWords = text.split(/(\s+)/);
+  
+  return textWords
+    .map(word => {
+      if (queryWords.includes(word.toLowerCase())) {
+        return `**${word}**`;
+      }
+      return word;
+    })
+    .join('');
+}
