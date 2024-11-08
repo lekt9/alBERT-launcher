@@ -8,6 +8,8 @@ import path from 'node:path'
 import { readContent } from './utils/reader'
 import { embed } from './embeddings'
 import { rerank } from './embeddings'
+import { generate as generateLLMResponse } from './llm'
+import { observable } from '@trpc/server/observable';
 
 const t = initTRPC.create({
   isServer: true
@@ -79,7 +81,7 @@ export const getRouter = (window: BrowserWindow) => {
           // Use reranking instead of embeddings
           const rerankedResults = await rerank(
             searchTerm,
-            combinedResults.map(r => r.text),
+            combinedResults.map((r) => r.text),
             { return_documents: false }
           )
 
@@ -137,6 +139,53 @@ export const getRouter = (window: BrowserWindow) => {
           console.error('Failed to open file:', error)
           return false
         }
+      })
+    }),
+
+    llm: router({
+      generate: t.procedure
+        .input(
+          z.object({
+            prompt: z.string()
+          })
+        )
+        .subscription(({ input }) => {
+          return observable((emit) => {
+            const startGeneration = async () => {
+              try {
+                await generateLLMResponse(input.prompt, {
+                  onToken: (token: string) => {
+                    emit.next({ type: 'token', value: token });
+                  },
+                  onProgress: (progress: number) => {
+                    emit.next({ type: 'progress', value: progress });
+                  }
+                });
+
+                // Handle the completion
+                emit.complete();
+              } catch (error) {
+                emit.next({ type: 'error', value: error.message });
+                emit.error(error);
+              }
+            };
+
+            // Start generation
+            startGeneration().catch((error) => {
+              console.error('Generation error:', error);
+              emit.error(error);
+            });
+
+            // Return cleanup function
+            return () => {
+              // Add any cleanup logic here if needed
+              // For example, if your LLM generation can be cancelled
+            };
+          });
+        }),
+
+      checkSupport: t.procedure.query(async () => {
+        return await checkGPUSupport()
       })
     })
   })
