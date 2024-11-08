@@ -19,8 +19,6 @@ async function extractContentFromUrl(url: string): Promise<ExtractedContent> {
     const response = await fetch(url)
     const html = await response.text()
 
-    console.log('html', html)
-
     // Parse HTML using linkedom
     const dom = parseHTML(html)
     const document = dom.window.document
