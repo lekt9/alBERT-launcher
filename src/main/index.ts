@@ -43,7 +43,7 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.webContents.openDevTools()
+  // mainWindow.webContents.openDevTools()
   // Set up tRPC handler
   createIPCHandler({
     router: getRouter(mainWindow),
