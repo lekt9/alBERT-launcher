@@ -9,13 +9,6 @@ import ContextTabs from '@/components/ContextTabs'
 const SettingsPanel = React.lazy(() => import('@/components/SettingsPanel'))
 const DocumentViewer = React.lazy(() => import('@/components/DocumentViewer'))
 import { KeyboardShortcuts } from '@/components/navigation/KeyboardShortcuts'
-import {
-  cosineSimilarity,
-  streamText,
-  experimental_wrapLanguageModel as wrapLanguageModel
-} from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
-import { createContextMiddleware } from './lib/context-middleware'
 import { LLMSettings, ContextTab } from './types'
 import type { SearchBarRef } from '@/components/SearchBar'
 
@@ -381,92 +374,113 @@ function App(): JSX.Element {
     }
   }, [currentConversation])
 
-  // Ask AI Question
-  const askAIQuestion = useCallback(
-    async (prompt: string) => {
-      if (!showResults || searchResults.length === 0) {
-        console.warn('Search results are not ready yet.')
-        return
-      }
+  // Add new worker ref
+  const llmWorker = useRef<Worker | null>(null);
 
-      setIsLoading(true)
-      try {
-        const provider =
-          currentSettings.modelType === 'openai'
-            ? createOpenAI({
-                apiKey: currentSettings.apiKey,
-                baseUrl: currentSettings.baseUrl
-              })
-            : createOpenAI({
-                apiKey: currentSettings.apiKey,
-                baseUrl: 'http://localhost:11434/v1'
-              })
+  // Add new state for worker status
+  const [workerStatus, setWorkerStatus] = useState<'idle' | 'loading' | 'ready'>('idle');
+  const [workerProgress, setWorkerProgress] = useState<{
+    file: string;
+    progress: number;
+    total: number;
+  }[]>([]);
 
-        const baseModel = provider(currentSettings.model)
+  // Initialize worker in useEffect
+  useEffect(() => {
+    if (!llmWorker.current) {
+      llmWorker.current = new Worker(new URL('../llm-worker.ts', import.meta.url), {
+        type: 'module'
+      });
+      
+      llmWorker.current.addEventListener('message', (e) => {
+        switch (e.data.status) {
+          case 'loading':
+            setWorkerStatus('loading');
+            break;
+            
+          case 'progress':
+            setWorkerProgress(prev => {
+              const exists = prev.find(p => p.file === e.data.file);
+              if (exists) {
+                return prev.map(p => p.file === e.data.file ? {...p, ...e.data} : p);
+              }
+              return [...prev, e.data];
+            });
+            break;
+            
+          case 'ready':
+            setWorkerStatus('ready');
+            setWorkerProgress([]);
+            break;
+            
+          case 'update':
+            if (currentConversation) {
+              setCurrentConversation(prev => ({
+                ...prev!,
+                answer: prev!.answer + e.data.output
+              }));
+            }
+            break;
+            
+          case 'complete':
+            setIsLoading(false);
+            break;
+        }
+      });
 
-        const contextMiddleware = createContextMiddleware({
-          getContext: () => combinedSearchContext
-        })
+      // Initial check
+      llmWorker.current.postMessage({ type: 'check' });
+    }
 
-        const model = wrapLanguageModel({
-          model: baseModel,
-          middleware: contextMiddleware
-        })
+    return () => {
+      llmWorker.current?.terminate();
+    };
+  }, []);
 
-        const textStream = await streamText({
-          model,
+  // Replace askAIQuestion implementation
+  const askAIQuestion = useCallback(async (prompt: string) => {
+    if (!showResults || searchResults.length === 0) {
+      console.warn('Search results are not ready yet.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      setCurrentConversation({
+        question: prompt,
+        answer: '',
+        timestamp: Date.now()
+      });
+
+      llmWorker.current?.postMessage({
+        type: 'generate',
+        data: {
           prompt: `Use the following context to answer the question. If the context doesn't contain relevant information, say so. Reply in a punchy manner, using markdown formatting without the codeblocks.
 
 Context:
 ${combinedSearchContext}
 
-${
-  currentConversation
-    ? `Previous question: ${currentConversation.question}
+${currentConversation 
+  ? `Previous question: ${currentConversation.question}
 Previous answer: ${currentConversation.answer}
 
-`
-    : ''
-}Question: ${prompt}
+` 
+  : ''}Question: ${prompt}
 
 Answer:`
-        })
-
-        setCurrentConversation({
-          question: prompt,
-          answer: '',
-          timestamp: Date.now()
-        })
-
-        let fullResponse = ''
-        for await (const textPart of textStream.textStream) {
-          fullResponse += textPart
-          setCurrentConversation((prev) => ({
-            question: prev?.question || prompt,
-            answer: fullResponse,
-            timestamp: prev?.timestamp || Date.now()
-          }))
         }
-      } catch (error) {
-        console.error('AI answer failed:', error)
-        setCurrentConversation({
-          question: prompt,
-          answer: 'Sorry, I encountered an error while generating the response.',
-          timestamp: Date.now()
-        })
-      } finally {
-        setIsLoading(false)
-      }
-    },
-    [
-      showResults,
-      searchResults,
-      contextTabs,
-      currentConversation,
-      currentSettings,
-      combinedSearchContext
-    ]
-  )
+      });
+
+    } catch (error) {
+      console.error('AI answer failed:', error);
+      setCurrentConversation({
+        question: prompt,
+        answer: 'Sorry, I encountered an error while generating the response.',
+        timestamp: Date.now()
+      });
+      setIsLoading(false);
+    }
+  }, [showResults, searchResults, contextTabs, currentConversation, combinedSearchContext]);
 
   // Keyboard Event Handler
   const handleKeyDown = useCallback(

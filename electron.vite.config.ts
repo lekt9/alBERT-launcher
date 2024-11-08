@@ -14,7 +14,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           vectorizer: resolve(__dirname, 'src/main/vectorizer-worker.ts'),
-          reranker: resolve(__dirname, 'src/main/reranker-worker.ts')
+          reranker: resolve(__dirname, 'src/main/reranker-worker.ts'),
+          'llm-worker': resolve(__dirname, 'src/main/llm-worker.ts')
         }
       }
     }
