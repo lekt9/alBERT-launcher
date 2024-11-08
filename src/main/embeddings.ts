@@ -4,10 +4,10 @@ import { logger } from './utils/logger'
 
 let worker: Worker | null = null
 let reranker: Worker | null = null
+
 function initializeWorker() {
   if (!worker) {
     const workerPath = join(__dirname, 'vectorizer.js')
-
     worker = new Worker(workerPath)
 
     worker.on('error', (error) => {
@@ -22,10 +22,10 @@ function initializeWorker() {
     })
   }
 }
+
 function initializeReranker() {
   if (!reranker) {
     const workerPath = join(__dirname, 'reranker.js')
-
     reranker = new Worker(workerPath)
 
     reranker.on('error', (error) => {
@@ -40,6 +40,7 @@ function initializeReranker() {
     })
   }
 }
+
 export const embed = async (
   text: string | string[],
   batch_size: number = 15
@@ -51,17 +52,14 @@ export const embed = async (
       throw new Error('Embeddings worker not initialized')
     }
 
-    // Handle single string case
     if (!Array.isArray(text)) {
       return processBatch([text]).then((results) => results[0])
     }
 
-    // Process in batches of 20 if array length > 20
     if (text.length <= batch_size) {
       return processBatch(text)
     }
 
-    // Process large arrays in batches
     const results: number[][] = []
     for (let i = 0; i < text.length; i += batch_size) {
       const batch = text.slice(i, i + batch_size)
@@ -75,7 +73,17 @@ export const embed = async (
   }
 }
 
-export const rerank = async (texts: string[]): Promise<number[][]> => {
+interface RankResult {
+  corpus_id: number
+  score: number
+  text?: string
+}
+
+export const rerank = async (
+  query: string,
+  documents: string[],
+  options: { top_k?: number; return_documents?: boolean } = {}
+): Promise<RankResult[]> => {
   try {
     initializeReranker()
 
@@ -83,33 +91,32 @@ export const rerank = async (texts: string[]): Promise<number[][]> => {
       throw new Error('Reranker worker not initialized')
     }
 
-    return rerankStrings(texts)
+    return rerankStrings(query, documents, options)
   } catch (error) {
     logger.error('Reranking error:', error)
     throw error
   }
 }
 
-const rerankStrings = (texts: string[]): Promise<number[][]> => {
-  console.log('Reranking', texts)
-  console.log('Reranking', texts.length)
+const rerankStrings = (
+  query: string,
+  documents: string[],
+  options: { top_k?: number; return_documents?: boolean } = {}
+): Promise<RankResult[]> => {
   return new Promise((resolve, reject) => {
     reranker?.postMessage({
       type: 'rerank',
-      text: texts
+      text: JSON.stringify([query, documents, options])
     })
-    console.log('Reranking sent')
 
     const messageHandler = (message: any) => {
       if (message.type === 'result') {
-        console.log('Reranking received')
         cleanup()
         resolve(message.reranked)
       }
     }
 
     const errorHandler = (error: Error) => {
-      console.log('Reranking error')
       cleanup()
       reject(error)
     }
@@ -118,10 +125,12 @@ const rerankStrings = (texts: string[]): Promise<number[][]> => {
       reranker?.removeListener('message', messageHandler)
       reranker?.removeListener('error', errorHandler)
     }
+
+    reranker?.on('message', messageHandler)
+    reranker?.on('error', errorHandler)
   })
 }
 
-// Helper function to process a single batch
 const processBatch = (batch: string[]): Promise<number[][]> => {
   return new Promise((resolve, reject) => {
     worker?.postMessage({
@@ -158,5 +167,9 @@ export const cleanup = () => {
   if (worker) {
     worker.terminate()
     worker = null
+  }
+  if (reranker) {
+    reranker.terminate()
+    reranker = null
   }
 }

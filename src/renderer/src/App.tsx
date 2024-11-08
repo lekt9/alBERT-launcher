@@ -183,13 +183,12 @@ function App(): JSX.Element {
       try {
         const fileResults = await trpcClient.search.all.query(searchQuery)
         
-        // Collect all chunks from all results first
+        // Collect all chunks from all results
         const allChunksWithMetadata = fileResults.flatMap(result => {
-          const chunks = splitContent(result.text, 300, 20)
-          return chunks.map((chunk, index) => ({
+          const chunks = splitContent(result.text, 1000, 20)
+          return chunks.map(chunk => ({
             chunk,
             resultIndex: fileResults.indexOf(result),
-            chunkIndex: index,
             originalResult: result
           }))
         })
@@ -197,21 +196,22 @@ function App(): JSX.Element {
         // Get all chunks for reranking
         const allChunks = allChunksWithMetadata.map(item => item.chunk)
         
-        // Add the query as the first item for reranking
-        const textsToRerank = [searchQuery, ...allChunks]
-        
         // Rerank all chunks against the query
-        const rerankedScores = await trpcClient.embeddings.rerank.query(textsToRerank)
+        const rerankedResults = await trpcClient.embeddings.rerank.query({
+          query: searchQuery,
+          documents: allChunks,
+          options: {
+            return_documents: true
+          }
+        })
         
         // Process results using the reranked scores
-        // Note: First score is query-query similarity, so we skip it
         const processedResults = fileResults.map((result, resultIndex) => {
           const resultChunks = allChunksWithMetadata.filter(item => item.resultIndex === resultIndex)
-          const chunkScores = resultChunks.map((item, i) => ({
+          const chunkScores = resultChunks.map(item => ({
             text: item.chunk,
-            // Add 1 to skip the query-query similarity score
-            score: rerankedScores[allChunksWithMetadata.indexOf(item) + 1][0],
-            index: item.chunkIndex
+            score: rerankedResults.find(r => r.text === item.chunk)?.score || 0,
+            index: allChunksWithMetadata.indexOf(item)
           }))
 
           const scores = chunkScores.map(c => c.score)

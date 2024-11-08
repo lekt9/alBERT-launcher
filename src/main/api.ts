@@ -40,11 +40,21 @@ export const getRouter = (window: BrowserWindow) => {
           return Array.isArray(input) ? results : results[0]
         }),
       rerank: t.procedure
-        .input(z.union([z.string(), z.array(z.string())]))
+        .input(
+          z.object({
+            query: z.string(),
+            documents: z.array(z.string()),
+            options: z
+              .object({
+                top_k: z.number().optional(),
+                return_documents: z.boolean().optional()
+              })
+              .optional()
+          })
+        )
         .query(async ({ input }) => {
-          const textArray = Array.isArray(input) ? input : [input]
-          const results = await rerank(textArray)
-          return Array.isArray(input) ? results : results[0]
+          const { query, documents, options = {} } = input
+          return await rerank(query, documents, options)
         })
     }),
 
