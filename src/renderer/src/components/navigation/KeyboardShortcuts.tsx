@@ -28,7 +28,7 @@ export function KeyboardShortcuts({ showDocument, activePanel }: KeyboardShortcu
           <span>
             {activePanel === 'settings' 
               ? 'Close Settings' 
-              : 'Add to Context'}
+              : 'Pin to Context'}
           </span>
         </div>
         <div className="flex items-center space-x-1">

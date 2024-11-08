@@ -1,12 +1,13 @@
 // @components/SearchResults.tsx
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { FileText, MessageSquare } from 'lucide-react';
+import { FileText, MessageSquare, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { trpcClient } from '../util/trpc-client';
 
 interface SearchResult {
   text: string;
@@ -55,6 +56,14 @@ const cardVariants = {
 
 const SearchResults: React.FC<SearchResultsProps> = React.memo(
   ({ searchResults, selectedIndex, handleResultClick }) => {
+    const openFile = useCallback(async (path: string) => {
+      try {
+        await trpcClient.file.open.mutate(path);
+      } catch (error) {
+        console.error('Failed to open file:', error);
+      }
+    }, []);
+
     return (
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="transition-all duration-200 h-[500px]" >
@@ -91,7 +100,7 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                       </div>
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-sm font-semibold">
+                      <h3 className="text-sm font-semibold flex items-center gap-2">
                         {result.metadata.path.split('/').pop()}
                       </h3>
                       <div className="text-xs text-muted-foreground mt-1 prose prose-sm max-w-none">
