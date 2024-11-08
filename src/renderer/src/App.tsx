@@ -10,7 +10,6 @@ const SettingsPanel = React.lazy(() => import('@/components/SettingsPanel'))
 const DocumentViewer = React.lazy(() => import('@/components/DocumentViewer'))
 import { KeyboardShortcuts } from '@/components/navigation/KeyboardShortcuts'
 import {
-  cosineSimilarity,
   streamText,
   experimental_wrapLanguageModel as wrapLanguageModel
 } from 'ai'

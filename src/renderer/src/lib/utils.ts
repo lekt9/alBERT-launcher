@@ -177,7 +177,15 @@ export function timeout<T>(ms: number, promise: Promise<T>): Promise<T> {
       })
   })
 }
-
+export const createAbortController = () => {
+  if (typeof AbortController === 'undefined') {
+    return {
+      abort: () => {},
+      signal: { aborted: false }
+    } as AbortController
+  }
+  return new AbortController()
+}
 // src/renderer/src/lib/utils.ts
 export function debounce<F extends (...args: any[]) => void>(func: F, waitFor: number) {
   let timeout: NodeJS.Timeout
