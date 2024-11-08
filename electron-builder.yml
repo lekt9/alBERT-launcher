@@ -40,9 +40,9 @@ win:
 linux:
   artifactName: ${name}.${ext}
   target:
-    - deb
-    arch:
-      - x64
+    - target: deb
+      arch:
+        - x64
   maintainer: electronjs.org
   category: Utility
 publish:
