@@ -98,6 +98,102 @@ function App(): JSX.Element {
   // Add this near your other state definitions
   const searchTimeoutRef = useRef<NodeJS.Timeout>()
 
+  // Add WebGPU worker reference
+  const worker = useRef<Worker | null>(null)
+
+  // Add WebGPU-related states
+  const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | null>(null)
+  const [modelError, setModelError] = useState<string | null>(null)
+  const [loadingMessage, setLoadingMessage] = useState<string>('')
+  const [progressItems, setProgressItems] = useState<Array<{
+    file: string
+    progress: number
+    total: number
+  }>>([])
+  const [isGenerating, setIsGenerating] = useState<boolean>(false)
+  const [tps, setTps] = useState<number | null>(null)
+  const [numTokens, setNumTokens] = useState<number | null>(null)
+
+  // Initialize WebGPU worker
+  useEffect(() => {
+    if (!worker.current) {
+      worker.current = new Worker(new URL('./worker.js', import.meta.url), {
+        type: 'module'
+      })
+      worker.current.postMessage({ type: 'check' })
+    }
+
+    const onMessageReceived = (e: MessageEvent) => {
+      switch (e.data.status) {
+        case 'loading':
+          setModelStatus('loading')
+          setLoadingMessage(e.data.data)
+          break
+
+        case 'initiate':
+          setProgressItems((prev) => [...prev, e.data])
+          break
+
+        case 'progress':
+          setProgressItems((prev) =>
+            prev.map((item) => {
+              if (item.file === e.data.file) {
+                return { ...item, ...e.data }
+              }
+              return item
+            })
+          )
+          break
+
+        case 'done':
+          setProgressItems((prev) => prev.filter((item) => item.file !== e.data.file))
+          break
+
+        case 'ready':
+          setModelStatus('ready')
+          break
+
+        case 'start':
+          setCurrentConversation((prev) => ({
+            ...prev!,
+            answer: ''
+          }))
+          break
+
+        case 'update':
+          const { output, tps, numTokens } = e.data
+          setTps(tps)
+          setNumTokens(numTokens)
+          setCurrentConversation((prev) => ({
+            ...prev!,
+            answer: prev!.answer + output
+          }))
+          break
+
+        case 'complete':
+          setIsGenerating(false)
+          break
+
+        case 'error':
+          setModelError(e.data.data)
+          break
+      }
+    }
+
+    const onErrorReceived = (e: ErrorEvent) => {
+      console.error('Worker error:', e)
+      setModelError(e.message)
+    }
+
+    worker.current.addEventListener('message', onMessageReceived)
+    worker.current.addEventListener('error', onErrorReceived)
+
+    return () => {
+      worker.current?.removeEventListener('message', onMessageReceived)
+      worker.current?.removeEventListener('error', onErrorReceived)
+    }
+  }, [])
+
   // Add this near your other useMemo hooks
   const combinedSearchContext = useMemo(() => {
     const MAX_CONTEXT_LENGTH = 50000
@@ -376,7 +472,7 @@ function App(): JSX.Element {
     }
   }, [currentConversation])
 
-  // Replace askAIQuestion implementation
+  // Modify askAIQuestion to use WebGPU worker
   const askAIQuestion = useCallback(
     async (prompt: string) => {
       if (!showResults || searchResults.length === 0) {
@@ -385,6 +481,8 @@ function App(): JSX.Element {
       }
 
       setIsLoading(true)
+      setIsGenerating(true)
+
       try {
         setCurrentConversation({
           question: prompt,
@@ -408,73 +506,29 @@ Previous answer: ${currentConversation.answer}
 
 Answer:`
 
-        let subscription: { unsubscribe: () => void } | null = null;
-
-        try {
-          subscription = trpcClient.llm.generate.subscribe(
-            { prompt: fullPrompt },
-            {
-              onStarted: () => {
-                console.log('Started generating response');
-              },
-              onData: (data: { type: string; value: string | number }) => {
-                switch (data.type) {
-                  case 'token':
-                    setCurrentConversation((prev) => ({
-                      ...prev!,
-                      answer: prev!.answer + (data.value as string)
-                    }));
-                    break;
-                  case 'progress':
-                    // Handle progress updates if needed
-                    console.log('Progress:', data.value);
-                    break;
-                  case 'error':
-                    console.error('Streaming error:', data.value);
-                    setCurrentConversation((prev) => ({
-                      ...prev!,
-                      answer: prev!.answer + '\n\nError: ' + data.value
-                    }));
-                    break;
-                }
-              },
-              onError: (error) => {
-                console.error('Subscription error:', error);
-                setCurrentConversation((prev) => ({
-                  ...prev!,
-                  answer: prev!.answer + '\n\nError: Failed to generate response'
-                }));
-              },
-              onComplete: () => {
-                console.log('Generation completed');
-                setIsLoading(false);
-              },
-            }
-          );
-        } catch (error) {
-          console.error('Failed to create subscription:', error);
-          throw error;
-        }
-
-        // Return cleanup function
-        return () => {
-          if (subscription) {
-            subscription.unsubscribe();
-          }
-        };
+        worker.current?.postMessage({
+          type: 'generate',
+          data: fullPrompt
+        })
 
       } catch (error) {
-        console.error('AI answer failed:', error);
+        console.error('AI answer failed:', error)
         setCurrentConversation({
           question: prompt,
           answer: 'Sorry, I encountered an error while generating the response.',
           timestamp: Date.now()
-        });
-        setIsLoading(false);
+        })
+        setIsLoading(false)
+        setIsGenerating(false)
       }
     },
     [showResults, searchResults, contextTabs, currentConversation, combinedSearchContext]
-  );
+  )
+
+  // Add interrupt handler
+  const handleInterrupt = useCallback(() => {
+    worker.current?.postMessage({ type: 'interrupt' })
+  }, [])
 
   // Keyboard Event Handler
   const handleKeyDown = useCallback(
@@ -666,6 +720,10 @@ Answer:`
                       currentConversation={currentConversation}
                       selectedIndex={selectedIndex}
                       addAIResponseToContext={addAIResponseToContext}
+                      isGenerating={isGenerating}
+                      onInterrupt={handleInterrupt}
+                      tps={tps}
+                      numTokens={numTokens}
                     />
                   )}
 
