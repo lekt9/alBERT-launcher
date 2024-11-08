@@ -1,7 +1,7 @@
 // @components/SearchResults.tsx
 import React, { useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { FileText, MessageSquare, ExternalLink } from 'lucide-react';
+import { FileText, MessageSquare, ExternalLink, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -21,6 +21,7 @@ interface SearchResult {
     links: string[];
     owner: string | null;
     seen_at: number;
+    sourceType?: 'document' | 'web';
   };
 }
 
@@ -92,8 +93,8 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                   <CardContent className="p-3 flex items-start space-x-3">
                     <div className="flex gap-2">
                       <div className="bg-muted rounded-full p-2 mt-1">
-                        {result.metadata.filetype === 'ai_prompt' ? (
-                          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                        {result.metadata.sourceType === 'web' ? (
+                          <Globe className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <FileText className="h-4 w-4 text-muted-foreground" />
                         )}
@@ -102,16 +103,16 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold flex items-center gap-2">
                         {result.metadata.path.split('/').pop()}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {result.metadata.sourceType === 'web' ? 'Web Source' : 'Document'}
+                        </span>
                       </h3>
                       <div className="text-xs text-muted-foreground mt-1 prose prose-sm max-w-none">
                         <ReactMarkdown>{result.text}</ReactMarkdown>
                       </div>
                       <div className="flex items-center mt-2 space-x-2">
                         <span className="text-xs text-muted-foreground">
-                          Modified:{' '}
-                          {new Date(
-                            result.metadata.modified_at * 1000
-                          ).toLocaleDateString()}
+                          Modified: {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
                         </span>
                       </div>
                     </div>

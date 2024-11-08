@@ -1,7 +1,7 @@
 // @components/DocumentViewer.tsx
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { X } from 'lucide-react';
+import { X, FileText, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -109,7 +109,19 @@ const DocumentViewer: React.FC<DocumentViewerProps> = React.memo(
                 >
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <h3 className="text-sm font-semibold">{doc.path.split('/').pop()}</h3>
+                      <div className="flex items-center gap-2">
+                        {doc.path.startsWith('http') ? (
+                          <Globe className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <h3 className="text-sm font-semibold">
+                          {doc.path.split('/').pop()}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            {doc.path.startsWith('http') ? 'Web Source' : 'Document'}
+                          </span>
+                        </h3>
+                      </div>
                       <button
                         onClick={() => removeFromContext(doc.path)}
                         className="text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100 p-1"

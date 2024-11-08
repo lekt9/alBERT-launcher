@@ -46,6 +46,9 @@ export const embed = async (
   batch_size: number = 15
 ): Promise<number[] | number[][]> => {
   try {
+    if (text.length === 0) {
+      return []
+    }
     initializeWorker()
 
     if (!worker) {
@@ -85,6 +88,10 @@ export const rerank = async (
   options: { top_k?: number; return_documents?: boolean } = {}
 ): Promise<RankResult[]> => {
   try {
+    if (documents.length === 0 || query.length === 0) {
+      return []
+    }
+    documents = documents.filter((doc) => doc.length > 0)
     initializeReranker()
 
     if (!reranker) {

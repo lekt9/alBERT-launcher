@@ -17,6 +17,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { createContextMiddleware } from './lib/context-middleware'
 import { LLMSettings, ContextTab } from './types'
 import type { SearchBarRef } from '@/components/SearchBar'
+import { FileText, Globe } from 'lucide-react'
 
 interface SearchResult {
   text: string
@@ -30,6 +31,7 @@ interface SearchResult {
     links: string[]
     owner: string | null
     seen_at: number
+    sourceType?: 'document' | 'web'
   }
 }
 
@@ -224,10 +226,16 @@ function App(): JSX.Element {
             .map(chunk => highlightMatches(chunk.text, searchQuery))
             .join('\n\n---\n\n')
 
+          const isWebSource = result.metadata.path.startsWith('http') || result.metadata.path.startsWith('https')
+
           return {
             ...result,
             text: significantChunks || highlightMatches(result.text, searchQuery),
-            dist: 1 - Math.max(...scores) // Convert score to distance
+            dist: 1 - Math.max(...scores), // Convert score to distance
+            metadata: {
+              ...result.metadata,
+              sourceType: isWebSource ? 'web' : 'document'
+            }
           }
         })
 

@@ -48,19 +48,11 @@ class SearchDB {
   private fileIndex: FileIndex = {}
   private indexPath: string
   private isShuttingDown: boolean = false
-  private _vectorizer: Awaited<ReturnType<typeof workers.getVectorizer>> | null = null
 
   private constructor(client: EmbeddedClient, indexPath: string) {
     this.client = client
     this.indexPath = indexPath
     this.setupShutdownHandlers()
-  }
-
-  private async _getVectorizer(): Promise<Awaited<ReturnType<typeof workers.getVectorizer>>> {
-    if (!this._vectorizer) {
-      this._vectorizer = await workers.getVectorizer()
-    }
-    return this._vectorizer
   }
 
   public async indexDirectory(
@@ -129,8 +121,7 @@ class SearchDB {
       const parsedPath = path.parse(filePath)
       const content = await this.getContent(filePath)
 
-      const vectorizer = await this._getVectorizer()
-      const vector = await vectorizer.vectorize([content])
+      const vector = await embed(content)
 
       await this.client.data
         .creator()
@@ -143,7 +134,7 @@ class SearchDB {
           lastModified: stats.mtimeMs,
           hash: currentHash
         })
-        .withVector(vector[0])
+        .withVector(vector)
         .do()
 
       this.fileIndex[filePath] = currentHash

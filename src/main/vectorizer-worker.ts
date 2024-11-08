@@ -13,7 +13,7 @@ let embedder: any = null;
 async function initializeEmbedder() {
   if (!embedder) {
     await initializePipeline();
-    embedder = await pipeline('feature-extraction', 'Xenova/jina-embeddings-v2-small-en', {
+    embedder = await pipeline('feature-extraction', 'thenlper/gte-base', {
       quantized: false,
       revision: 'main',
     });
