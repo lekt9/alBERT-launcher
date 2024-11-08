@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useImperativeHandle, forwardRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2, Lock, LockOpen } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -12,19 +12,32 @@ interface SearchBarProps {
   handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-const SearchBar: React.FC<SearchBarProps> = React.memo(({
+export interface SearchBarRef {
+  focus: () => void;
+}
+
+const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
   query,
   isLoading,
   isPrivate,
   handlePrivacyToggle,
   handleInputChange,
-}) => {
+}, ref) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      inputRef.current?.focus();
+    }
+  }));
+
   return (
     <div className="relative">
       <Search 
         className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground h-5 w-5" 
       />
       <Input
+        ref={inputRef}
         type="text"
         value={query}
         onChange={handleInputChange}

@@ -5,8 +5,8 @@ import { BraveSearch } from 'brave-search'
 import SearchDB from './db'
 import log from './logger'
 import path from 'node:path'
-import { embed } from './embeddings'
 import { readContent } from './utils/reader'
+import { embed } from './embeddings'
 
 const t = initTRPC.create({
   isServer: true
@@ -15,59 +15,58 @@ const t = initTRPC.create({
 const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || 'BSAptOw_xjYBpxDm33wl0OEhsUBPBXP')
 
 export const getRouter = (window: BrowserWindow) => {
-  const router = t.router;
-  
+  const router = t.router
+
   return router({
     document: router({
-      fetch: t.procedure
-        .input(z.string())
-        .query(async ({ input: filePath }) => {
-          log.info('tRPC Call: document.fetch')
-          try {
-            const content = await readContent(filePath)
-            return content
-          } catch (error) {
-            log.error('Error reading file:', error)
-            throw error
-          }
-        })
+      fetch: t.procedure.input(z.string()).query(async ({ input: filePath }) => {
+        log.info('tRPC Call: document.fetch')
+        try {
+          const content = await readContent(filePath)
+          return content
+        } catch (error) {
+          log.error('Error reading file:', error)
+          throw error
+        }
+      })
     }),
 
     search: router({
-      all: t.procedure
-        .input(z.string())
-        .query(async ({ input: searchTerm }) => {
-          log.info('tRPC Call: search.all')
-          try {
-            const [fileResults, webResults] = await Promise.all([
-              searchFiles(searchTerm),
-              searchWeb(searchTerm)
-            ])
+      all: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
+        log.info('tRPC Call: search.all')
+        try {
+          const [fileResults, webResults] = await Promise.all([
+            searchFiles(searchTerm),
+            searchWeb(searchTerm)
+          ])
 
-            const combinedResults = [...fileResults, ...webResults].filter(
-              (result) => result.text && result.text.trim().length > 0
-            )
+          const combinedResults = [...fileResults, ...webResults].filter(
+            (result) => result.text && result.text.trim().length > 0
+          )
 
-            if (combinedResults.length === 0) {
-              return []
-            }
-
-            const searchEmbedding = await embed(searchTerm)
-            const resultEmbeddings = await Promise.all(
-              combinedResults.map((result) => embed(result.text.trim()))
-            )
-
-            const rankedResults = combinedResults.map((result, index) => ({
-              ...result,
-              dist: cosineSimilarity(searchEmbedding, resultEmbeddings[index])
-            }))
-
-            return rankedResults.sort((a, b) => a.dist - b.dist)
-          } catch (error) {
-            log.error('Error performing combined search:', error)
-            throw error
+          if (combinedResults.length === 0) {
+            return []
           }
-        })
+
+          const searchEmbedding = await embed(searchTerm)
+
+          // for loop so not duplicate results
+          const resultEmbeddings: number[][] = []
+          for (const result of combinedResults) {
+            resultEmbeddings.push(await embed(result.text))
+          }
+
+          const rankedResults = combinedResults.map((result, index) => ({
+            ...result,
+            dist: cosineSimilarity(searchEmbedding, resultEmbeddings[index])
+          }))
+
+          return rankedResults.sort((a, b) => b.dist - a.dist)
+        } catch (error) {
+          log.error('Error performing combined search:', error)
+          throw error
+        }
+      })
     }),
 
     window: router({
@@ -101,18 +100,16 @@ export const getRouter = (window: BrowserWindow) => {
     }),
 
     file: router({
-      open: t.procedure
-        .input(z.string())
-        .mutation(async ({ input }) => {
-          try {
-            const filePath = path.resolve(input)
-            await shell.openPath(filePath)
-            return true
-          } catch (error) {
-            console.error('Failed to open file:', error)
-            return false
-          }
-        })
+      open: t.procedure.input(z.string()).mutation(async ({ input }) => {
+        try {
+          const filePath = path.resolve(input)
+          await shell.openPath(filePath)
+          return true
+        } catch (error) {
+          console.error('Failed to open file:', error)
+          return false
+        }
+      })
     })
   })
 }
@@ -124,27 +121,66 @@ async function searchFiles(searchTerm: string) {
   return await searchDB.search(searchTerm)
 }
 
+// Add retry utility function at the top
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const retryWithBackoff = async <T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelay = 1000,
+  maxDelay = 5000
+): Promise<T> => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn()
+    } catch (error) {
+      if (i === retries - 1) throw error
+
+      // Calculate delay with exponential backoff
+      const delay = Math.min(baseDelay * Math.pow(2, i), maxDelay)
+      // Add some jitter
+      const jitter = Math.random() * 200
+      await wait(delay + jitter)
+
+      log.warn(`Retry ${i + 1}/${retries} for web search after ${delay}ms`)
+    }
+  }
+  throw new Error('Retry failed')
+}
+
+// Update the searchWeb function with retry logic
 async function searchWeb(searchTerm: string) {
   try {
-    const searchResults = await braveSearch.webSearch(searchTerm, {
-      count: 5,
-      search_lang: 'en',
-      country: 'US',
-      text_decorations: false
-    })
+    const searchResults = await retryWithBackoff(
+      async () =>
+        braveSearch.webSearch(searchTerm, {
+          count: 5,
+          search_lang: 'en',
+          country: 'US',
+          text_decorations: false
+        }),
+      3, // 3 retries
+      1000, // Start with 1s delay
+      5000 // Max 5s delay
+    )
 
     if (!searchResults.web?.results) {
       return []
     }
-
     const processedResults = (
       await Promise.allSettled(
         searchResults.web.results.map(async (result) => {
           try {
-            const content = await readContent(result.url)
+            // Also add retry for content fetching
+            const content = await retryWithBackoff(
+              () => readContent(result.url),
+              2, // 2 retries for content
+              500, // Start with 500ms delay
+              2000 // Max 2s delay
+            )
+
             return {
               text: content,
-              dist: 0,
               metadata: {
                 path: result.url,
                 created_at: Date.now() / 1000,
@@ -157,20 +193,35 @@ async function searchWeb(searchTerm: string) {
               }
             }
           } catch (error) {
-            log.error(`Failed to extract content from ${result.url}:`, error)
+            log.error(`Failed to extract content from ${result.url} after retries:`, error)
             return null
           }
         })
       )
     )
-      .filter((result): result is PromiseFulfilledResult<any> =>
-        result.status === 'fulfilled' && result.value !== null
+      .filter(
+        (
+          result
+        ): result is PromiseFulfilledResult<{
+          text: string
+          dist: number
+          metadata: {
+            path: string
+            created_at: number
+            modified_at: number
+            filetype: string
+            languages: string[]
+            links: string[]
+            owner: string | null
+            seen_at: number
+          }
+        }> => result.status === 'fulfilled' && result.value !== null
       )
       .map((result) => result.value)
 
     return processedResults
   } catch (error) {
-    log.error('Error performing web search:', error)
+    log.error('Error performing web search after all retries:', error)
     throw error
   }
 }

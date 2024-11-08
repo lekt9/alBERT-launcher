@@ -6,13 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Lock, LockOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface LLMSettings {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  modelType: 'openai' | 'ollama';
-}
+import { LLMSettings } from '@/types';
 
 interface SettingsPanelProps {
   isPrivate: boolean;
@@ -21,7 +15,7 @@ interface SettingsPanelProps {
   publicSettings: LLMSettings;
   setPrivateSettings: (settings: LLMSettings) => void;
   setPublicSettings: (settings: LLMSettings) => void;
-  handleSaveSettings: (settings: LLMSettings) => void;
+  setActivePanel: (panel: 'none' | 'chat' | 'document' | 'settings') => void;
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -31,7 +25,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   publicSettings,
   setPrivateSettings,
   setPublicSettings,
-  handleSaveSettings,
+  setActivePanel,
 }) => {
   const [localSettings, setLocalSettings] = useState<LLMSettings>(isPrivate ? privateSettings : publicSettings);
   const baseUrlRef = useRef<HTMLInputElement>(null);
@@ -44,18 +38,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setLocalSettings(isPrivate ? privateSettings : publicSettings);
   }, [isPrivate, privateSettings, publicSettings]);
 
+  const handleSaveSettings = () => {
+    if (isPrivate) {
+      setPrivateSettings(localSettings);
+      localStorage.setItem('llm-settings-private', JSON.stringify(localSettings));
+    } else {
+      setPublicSettings(localSettings);
+      localStorage.setItem('llm-settings-public', JSON.stringify(localSettings));
+    }
+    setActivePanel('none');
+  };
+
   return (
     <div className="flex flex-col h-full" onClick={(e) => e.stopPropagation()}>
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">Settings</h2>
-        <button
-          onClick={() => {
-            // Logic to close settings panel
-          }}
-          className="text-gray-500 hover:text-gray-700"
-        >
-          ✕
-        </button>
       </div>
       <div className="grid gap-4 py-4">
         <div className="flex items-center justify-between">
@@ -70,7 +67,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           <Switch
             id="privacy"
             checked={isPrivate}
-            onCheckedChange={(checked) => setIsPrivate(checked)}
+            onCheckedChange={(checked) => {
+              setIsPrivate(checked);
+              localStorage.setItem('llm-privacy', JSON.stringify(checked));
+            }}
             className="data-[state=checked]:bg-primary"
           />
         </div>
@@ -121,7 +121,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 model: e.target.value,
               }))
             }
-            placeholder={isPrivate ? 'llama3.2:3b' : 'gpt-4o-mini'}
+            placeholder={isPrivate ? 'llama3.2:1b' : 'gpt-4o-mini'}
           />
         </div>
       </div>
@@ -129,17 +129,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <Button
           variant="outline"
           onClick={() => {
-            // Logic to cancel changes
             setLocalSettings(isPrivate ? privateSettings : publicSettings);
+            setActivePanel('none');
           }}
         >
           Cancel
         </Button>
         <Button
-          onClick={() => {
-            handleSaveSettings(localSettings);
-            // Logic to close settings panel
-          }}
+          onClick={handleSaveSettings}
         >
           Save Changes
         </Button>

@@ -1,7 +1,13 @@
-import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, Suspense, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { trpcClient } from './util/trpc-client'
-import { splitContent, calculateSimilarity, cn, calculateStandardDeviation, highlightMatches } from '@/lib/utils'
+import {
+  splitContent,
+  calculateSimilarity,
+  cn,
+  calculateStandardDeviation,
+  highlightMatches
+} from '@/lib/utils'
 import { debounce } from '@/lib/utils'
 import SearchBar from '@/components/SearchBar'
 import AIResponseCard from '@/components/AIResponseCard'
@@ -14,6 +20,7 @@ import { streamText, experimental_wrapLanguageModel as wrapLanguageModel } from 
 import { createOpenAI } from '@ai-sdk/openai'
 import { createContextMiddleware } from './lib/context-middleware'
 import { LLMSettings, ContextTab } from './types'
+import type { SearchBarRef } from '@/components/SearchBar'
 
 interface SearchResult {
   text: string
@@ -28,13 +35,6 @@ interface SearchResult {
     owner: string | null
     seen_at: number
   }
-}
-
-interface ProcessedDocument {
-  path: string
-  content: string
-  chunks: string[]
-  relevanceScore: number
 }
 
 interface AIResponse {
@@ -62,7 +62,7 @@ function App() {
       : {
           baseUrl: 'http://localhost:11434/v1',
           apiKey: '',
-          model: 'llama3.2:3b',
+          model: 'llama3.2:1b',
           modelType: 'ollama'
         }
   })
@@ -72,9 +72,9 @@ function App() {
     return saved
       ? JSON.parse(saved)
       : {
-          baseUrl: 'https://api.openai.com/v1',
-          apiKey: '',
-          model: 'gpt-4o-mini',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKey: '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',
+          model: 'openai/gpt-4o-mini',
           modelType: 'openai'
         }
   })
@@ -86,20 +86,90 @@ function App() {
 
   const [currentConversation, setCurrentConversation] = useState<AIResponse | null>(null)
   const [contextDocuments, setContextDocuments] = useState<Document[]>([])
-  const [processedDocuments, setProcessedDocuments] = useState<ProcessedDocument[]>([])
-  const [combinedContext, setCombinedContext] = useState<string>('')
   const [hoveredCardPath, setHoveredCardPath] = useState<string | null>(null)
 
   const [contextTabs, setContextTabs] = useState<ContextTab[]>([])
 
   const [activePanel, setActivePanel] = useState<'none' | 'chat' | 'document' | 'settings'>('none')
 
+  const searchBarRef = useRef<SearchBarRef>(null)
+
+  // Add this near your other state definitions
+  const searchTimeoutRef = useRef<NodeJS.Timeout>()
+
+  // Add this near your other useMemo hooks
+  const combinedSearchContext = useMemo(() => {
+    const MAX_CONTEXT_LENGTH = 40000
+    const CHUNK_SIZE = 500
+    const CHUNK_OVERLAP = 20
+
+    // Process search results
+    const searchResultDocs = searchResults.map((result) => ({
+      content: result.text,
+      path: result.metadata.path,
+      similarity: 1 - result.dist, // Convert distance to similarity (0-1)
+      type: 'search'
+    }))
+
+    // Process pinned documents (context tabs)
+    const pinnedDocs = contextTabs.map((tab) => ({
+      content: tab.content,
+      path: tab.path,
+      similarity: tab.metadata?.matchScore || 0,
+      type: 'pinned'
+    }))
+
+    // Combine and sort documents by similarity
+    const allDocs = [...pinnedDocs, ...searchResultDocs].sort((a, b) => b.similarity - a.similarity)
+
+    // Process each document into chunks while maintaining document order
+    const processedDocs = allDocs.map((doc) => {
+      const chunks = splitContent(doc.content, CHUNK_SIZE, CHUNK_OVERLAP)
+      return {
+        ...doc,
+        chunks,
+        totalLength: chunks.reduce((acc, chunk) => acc + chunk.length, 0)
+      }
+    })
+
+    // Build context string while respecting MAX_CONTEXT_LENGTH
+    let context = ''
+    let remainingLength = MAX_CONTEXT_LENGTH
+
+    // First pass: Add at least one chunk from each document if possible
+    processedDocs.forEach((doc) => {
+      if (remainingLength > 0 && doc.chunks.length > 0) {
+        const firstChunk = doc.chunks[0]
+        if (firstChunk.length <= remainingLength) {
+          context += `\n\nFrom ${doc.path}${doc.type === 'pinned' ? ' (pinned)' : ''}:\n${firstChunk}`
+          remainingLength -= firstChunk.length
+        }
+      }
+    })
+
+    // Second pass: Fill remaining context with additional chunks
+    processedDocs.forEach((doc) => {
+      // Skip first chunk as it's already been added
+      for (let i = 1; i < doc.chunks.length && remainingLength > 0; i++) {
+        const chunk = doc.chunks[i]
+        if (chunk.length <= remainingLength) {
+          context += `\n\nContinued from ${doc.path}:\n${chunk}`
+          remainingLength -= chunk.length
+        } else {
+          break
+        }
+      }
+    })
+
+    return context.trim()
+  }, [searchResults, contextTabs])
+
   // Debounced Search Function
   const debouncedSearch = useCallback(
-    debounce(async (searchQuery: string) => {
+    async (searchQuery: string) => {
       if (!searchQuery.trim()) {
         setShowResults(false)
-        return
+        return false
       }
       setIsLoading(true)
       try {
@@ -132,27 +202,47 @@ function App() {
 
         setSearchResults(processedResults)
         setShowResults(true)
+        return true
       } catch (error) {
         console.error('Search failed:', error)
         setSearchResults([])
         setShowResults(false)
+        return false
       } finally {
         setIsLoading(false)
       }
-    }, 1000),
+    },
     [currentSettings]
   )
 
-  // Handle Input Change
+  // Update the handleInputChange function
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const newQuery = e.target.value
       setQuery(newQuery)
       setSelectedIndex(-1)
-      debouncedSearch(newQuery)
+
+      // Clear any existing timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+
+      // Set new timeout for search
+      searchTimeoutRef.current = setTimeout(() => {
+        debouncedSearch(newQuery)
+      }, 500)
     },
     [debouncedSearch]
   )
+
+  // Add cleanup effect
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Copy to Clipboard Function
   const copyToClipboard = useCallback(
@@ -161,21 +251,11 @@ function App() {
         let contentToCopy = text
 
         if (includeContext) {
-          if (activePanel === 'document' && contextDocuments.length > 0) {
-            contentToCopy = contextDocuments
-              .map((doc) => `From ${doc.path}:\n${doc.content}`)
-              .join('\n\n')
+          if (contextTabs.length > 0) {
+            contentToCopy = `Query: ${query}\n\nContext:\n${combinedSearchContext}`
           } else if (showResults && selectedIndex >= 0) {
             const selectedResult = searchResults[selectedIndex]
-            const processedDoc = processedDocuments.find(
-              (doc) => doc.path === selectedResult.metadata.path
-            )
-
-            if (processedDoc) {
-              contentToCopy = `Selected content from ${selectedResult.metadata.path}:\n${selectedResult.text}\n\nRelevant context:\n${processedDoc.chunks.join('\n\n')}`
-            } else {
-              contentToCopy = selectedResult.text
-            }
+            contentToCopy = `Selected content from ${selectedResult.metadata.path}:\n${selectedResult.text}`
           } else {
             contentToCopy = `Query: ${query}\n\nResults:\n${searchResults
               .map((result) => `${result.metadata.path}:\n${result.text}`)
@@ -191,45 +271,7 @@ function App() {
         console.error('Failed to copy:', error)
       }
     },
-    [
-      activePanel,
-      contextDocuments,
-      showResults,
-      selectedIndex,
-      searchResults,
-      processedDocuments,
-      query
-    ]
-  )
-
-  // Process Document Content
-  const processDocumentContent = useCallback(
-    (content: string, query: string): ProcessedDocument[] => {
-      const MAX_CONTEXT_LENGTH = 10000
-      const chunks = splitContent(content, 1000, 100)
-
-      const scoredChunks = chunks.map((chunk) => ({
-        content: chunk,
-        score: calculateSimilarity(chunk, query)
-      }))
-
-      scoredChunks.sort((a, b) => b.score - a.score)
-
-      let totalLength = 0
-      const selectedChunks = scoredChunks.filter((chunk) => {
-        if (totalLength + chunk.content.length <= MAX_CONTEXT_LENGTH) {
-          totalLength += chunk.content.length
-          return true
-        }
-        return false
-      })
-
-      return selectedChunks.map((chunk) => ({
-        content: chunk.content,
-        relevanceScore: chunk.score
-      }))
-    },
-    []
+    [query, contextTabs, showResults, selectedIndex, searchResults]
   )
 
   // Fetch Document Content
@@ -243,47 +285,25 @@ function App() {
       try {
         const content = await trpcClient.document.fetch.query(filePath)
         if (content) {
-          const processedContent = processDocumentContent(content, query)
           const matchScore = calculateSimilarity(content, query)
-
-          // Update processedDocuments
-          setProcessedDocuments((prev) => {
-            const newDocs = [...prev]
-            const existingIndex = newDocs.findIndex((doc) => doc.path === filePath)
-
-            if (existingIndex >= 0) {
-              newDocs[existingIndex] = {
-                path: filePath,
-                content,
-                chunks: processedContent.map((pc) => pc.content),
-                relevanceScore: Math.max(...processedContent.map((pc) => pc.relevanceScore))
-              }
-            } else {
-              newDocs.push({
-                path: filePath,
-                content,
-                chunks: processedContent.map((pc) => pc.content),
-                relevanceScore: Math.max(...processedContent.map((pc) => pc.relevanceScore))
-              })
-            }
-
-            return newDocs
-          })
 
           // Update contextTabs
           setContextTabs((prev) => {
             const exists = prev.some((tab) => tab.path === filePath)
             if (!exists) {
-              return [...prev, {
-                path: filePath,
-                content,
-                isExpanded: false,
-                metadata: {
-                  type: 'file',
-                  lastModified: Date.now(),
-                  matchScore
+              return [
+                ...prev,
+                {
+                  path: filePath,
+                  content,
+                  isExpanded: false,
+                  metadata: {
+                    type: 'file',
+                    lastModified: Date.now(),
+                    matchScore
+                  }
                 }
-              }]
+              ]
             }
             return prev
           })
@@ -294,32 +314,8 @@ function App() {
         console.error('Error fetching document:', error)
       }
     },
-    [processDocumentContent, query]
+    [query]
   )
-
-  // Update Combined Context
-  const updateCombinedContext = useCallback(() => {
-    const MAX_CONTEXT_LENGTH = 30000
-
-    const sortedDocs = [...processedDocuments].sort((a, b) => b.relevanceScore - a.relevanceScore)
-
-    let context = ''
-    let totalLength = 0
-
-    for (const doc of sortedDocs) {
-      for (const chunk of doc.chunks) {
-        if (totalLength + chunk.length <= MAX_CONTEXT_LENGTH) {
-          context += `\n\nFrom ${doc.path}:\n${chunk}`
-          totalLength += chunk.length
-        } else {
-          break
-        }
-      }
-      if (totalLength >= MAX_CONTEXT_LENGTH) break
-    }
-
-    setCombinedContext(context.trim())
-  }, [processedDocuments])
 
   // Open Folder Function
   const openAlBERTFolder = useCallback(async () => {
@@ -362,27 +358,6 @@ function App() {
 
       setIsLoading(true)
       try {
-        const searchResultsContent = searchResults
-          .map((result) => `From ${result.metadata.path}:\n${result.text}`)
-          .join('\n\n')
-
-        const pinnedContexts = contextDocuments.filter(
-          (doc) => !searchResults.some((result) => result.metadata.path === doc.path)
-        )
-
-        const scoredPinnedContexts = pinnedContexts.map((doc) => ({
-          ...doc,
-          score: calculateSimilarity(doc.content, prompt) * 1.2
-        }))
-
-        scoredPinnedContexts.sort((a, b) => b.score - a.score)
-
-        const pinnedContent = scoredPinnedContexts
-          .map((doc) => `From ${doc.path} (pinned):\n${doc.content}`)
-          .join('\n\n')
-
-        const combinedContext = `${pinnedContent}\n\n${searchResultsContent}`.trim()
-
         const provider =
           currentSettings.modelType === 'openai'
             ? createOpenAI({
@@ -397,7 +372,7 @@ function App() {
         const baseModel = provider(currentSettings.model)
 
         const contextMiddleware = createContextMiddleware({
-          getContext: () => combinedContext
+          getContext: () => combinedSearchContext
         })
 
         const model = wrapLanguageModel({
@@ -410,7 +385,7 @@ function App() {
           prompt: `Use the following context to answer the question. If the context doesn't contain relevant information, say so. Reply in a punchy manner, using markdown formatting without the codeblocks.
 
 Context:
-${combinedContext}
+${combinedSearchContext}
 
 ${
   currentConversation
@@ -453,23 +428,35 @@ Answer:`
     [
       showResults,
       searchResults,
-      contextDocuments,
+      contextTabs,
       currentConversation,
       currentSettings,
-      addAIResponseToContext,
-      trpcClient.folder
+      combinedSearchContext
     ]
   )
 
   // Keyboard Event Handler
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
+    async (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
         if (activePanel === 'settings') {
           setActivePanel('none')
         } else {
           trpcClient.window.hide.mutate()
+        }
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        if (contextTabs.length > 0) {
+          // Unpin the most recently pinned document
+          setContextTabs((prev) => {
+            const newTabs = [...prev]
+            newTabs.pop()
+            return newTabs
+          })
+        } else {
+          // Toggle settings panel when no tabs are pinned
+          setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings'))
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
@@ -485,32 +472,36 @@ Answer:`
           setContextTabs((prev) => {
             const exists = prev.some((tab) => tab.content === aiResponseContent)
             if (!exists) {
-              return [...prev, {
-                path: `AI Response (${new Date(currentConversation.timestamp).toLocaleTimeString()})`,
-                content: aiResponseContent,
-                isExpanded: false,
-                metadata: {
-                  type: 'ai_response',
-                  lastModified: currentConversation.timestamp,
-                  matchScore: 1
+              return [
+                ...prev,
+                {
+                  path: `AI Response (${new Date(currentConversation.timestamp).toLocaleTimeString()})`,
+                  content: aiResponseContent,
+                  isExpanded: false,
+                  metadata: {
+                    type: 'ai_response',
+                    lastModified: currentConversation.timestamp,
+                    matchScore: 1
+                  }
                 }
-              }]
+              ]
             }
             return prev
           })
         }
-      } else if (e.key === 'ArrowLeft' && contextTabs.length > 0) {
-        e.preventDefault()
-        // Unpin the most recently pinned document
-        setContextTabs(prev => {
-          const newTabs = [...prev]
-          newTabs.pop()
-          return newTabs
-        })
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (query.trim()) {
-          askAIQuestion(query)
+          if (!showResults || searchResults.length === 0) {
+            // Only search first if we don't have results yet
+            const searchSuccess = await debouncedSearch(query)
+            if (searchSuccess) {
+              askAIQuestion(query)
+            }
+          } else {
+            // If we already have search results, just ask the question
+            askAIQuestion(query)
+          }
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -548,7 +539,11 @@ Answer:`
       contextTabs,
       currentConversation,
       fetchDocumentContent,
-      activePanel
+      activePanel,
+      query,
+      showResults,
+      debouncedSearch,
+      askAIQuestion
     ]
   )
 
@@ -567,6 +562,15 @@ Answer:`
   useEffect(() => {
     // Logic to manage focus
   }, [activePanel, showResults])
+
+  useEffect(() => {
+    const handleWindowShow = () => {
+      searchBarRef.current?.focus()
+    }
+
+    window.addEventListener('focus', handleWindowShow)
+    return () => window.removeEventListener('focus', handleWindowShow)
+  }, [])
 
   return (
     <div
@@ -592,7 +596,7 @@ Answer:`
                     publicSettings={publicSettings}
                     setPrivateSettings={setPrivateSettings}
                     setPublicSettings={setPublicSettings}
-                    handleSaveSettings={handleSaveSettings}
+                    setActivePanel={setActivePanel}
                   />
                 </CardContent>
               </Card>
@@ -626,6 +630,7 @@ Answer:`
 
                   {/* Search Bar Section */}
                   <SearchBar
+                    ref={searchBarRef}
                     query={query}
                     setQuery={setQuery}
                     isLoading={isLoading}
@@ -667,10 +672,7 @@ Answer:`
           )}
 
           {/* Context Tabs */}
-          <ContextTabs
-            contextTabs={contextTabs}
-            setContextTabs={setContextTabs}
-          />
+          <ContextTabs contextTabs={contextTabs} setContextTabs={setContextTabs} />
         </div>
 
         <KeyboardShortcuts showDocument={activePanel === 'document'} activePanel={activePanel} />
