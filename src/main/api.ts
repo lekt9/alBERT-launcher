@@ -75,15 +75,17 @@ export const getRouter = (window: BrowserWindow) => {
             return []
           }
 
-          const allTexts = [searchTerm, ...combinedResults.map(r => r.text)]
-          const allEmbeddings = await embed(allTexts)
+          // Use reranking instead of embeddings
+          const rerankedResults = await rerank(
+            searchTerm,
+            combinedResults.map((r) => r.text),
+            { return_documents: false }
+          )
 
-          const searchEmbedding = allEmbeddings[0]
-          const resultEmbeddings = allEmbeddings.slice(1)
-
+          // Combine the reranking scores with the original results
           const rankedResults = combinedResults.map((result, index) => ({
             ...result,
-            dist: cosineSimilarity(searchEmbedding, resultEmbeddings[index])
+            dist: rerankedResults[index].score
           }))
 
           return rankedResults.sort((a, b) => b.dist - a.dist)
@@ -249,31 +251,6 @@ async function searchWeb(searchTerm: string) {
     log.error('Error performing web search after all retries:', error)
     throw error
   }
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) {
-    throw new Error('Vectors must have same length')
-  }
-
-  let dotProduct = 0
-  let normA = 0
-  let normB = 0
-
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
-  }
-
-  normA = Math.sqrt(normA)
-  normB = Math.sqrt(normB)
-
-  if (normA === 0 || normB === 0) {
-    return 0
-  }
-
-  return dotProduct / (normA * normB)
 }
 
 export type AppRouter = ReturnType<typeof getRouter>

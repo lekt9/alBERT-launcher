@@ -19,7 +19,7 @@ console.log(app.getPath('crashDumps'))
 process.env.APP_ROOT = path.join(__dirname, '..')
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
-
+app.commandLine.appendSwitch('enable-unsafe-webgpu')
 function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
 
@@ -32,12 +32,14 @@ function createWindow(): void {
     focusable: true,
     transparent: true,
     frame: false,
+    resizable: false,
+    roundedCorners: true,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      nodeIntegration: false,
+      nodeIntegration: true,
       contextIsolation: true,
       devTools: true
     }

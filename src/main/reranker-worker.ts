@@ -8,7 +8,7 @@ async function initializeModel() {
     const { AutoModelForSequenceClassification, AutoTokenizer } = await import(
       '@xenova/transformers'
     )
-    const model_id = 'jinaai/jina-reranker-v1-tiny-en'
+    const model_id = 'Xenova/ms-marco-MiniLM-L-6-v2'
     
     tokenizer = await AutoTokenizer.from_pretrained(model_id)
     model = await AutoModelForSequenceClassification.from_pretrained(model_id, {
