@@ -1,11 +1,11 @@
 import path from 'path'
 import fs from 'fs/promises'
 import { sha256 } from 'hash-wasm'
-import { parseFile } from './utils/fileParser'
 import { embed } from './embeddings'
 import * as workers from './worker-management'
 import { logger } from './utils/logger'
 import type { EmbeddedClient } from 'weaviate-ts-embedded'
+import { readContent } from './utils/reader'
 
 /* monkeypatch fetch to allow weaviate port */
 
@@ -127,7 +127,7 @@ class SearchDB {
 
       const stats = await fs.stat(filePath)
       const parsedPath = path.parse(filePath)
-      const content = await this.getFileContent(filePath)
+      const content = await this.getContent(filePath)
 
       console.log('content', content)
       const vectorizer = await this._getVectorizer()
@@ -233,8 +233,8 @@ class SearchDB {
     return await sha256(content)
   }
 
-  private async getFileContent(filePath: string): Promise<string> {
-    return await parseFile(filePath)
+  private async getContent(filePath: string): Promise<string> {
+    return await readContent(filePath)
   }
 
   public async search(searchTerm: string): Promise<Array<{

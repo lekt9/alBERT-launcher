@@ -165,7 +165,7 @@
         }
         setIsLoading(true)
         try {
-          const fileResults = await trpcClient.search.files.query(searchQuery)
+          const fileResults = await trpcClient.search.all.query(searchQuery)
           
           // Process each search result to chunk and filter content
           const processedResults = fileResults.map(result => {

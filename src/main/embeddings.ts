@@ -1,71 +1,71 @@
-import { Worker } from 'worker_threads';
-import path, { join } from 'path';
-import { logger } from './utils/logger';
+import { Worker } from 'worker_threads'
+import path, { join } from 'path'
+import { logger } from './utils/logger'
 
-let worker: Worker | null = null;
+let worker: Worker | null = null
 
 function initializeWorker() {
   if (!worker) {
-    const workerPath = join(__dirname, "vectorizer.js");
+    const workerPath = join(__dirname, 'vectorizer.js')
 
-    worker = new Worker(workerPath);
-    
+    worker = new Worker(workerPath)
+
     worker.on('error', (error) => {
-      logger.error('Embeddings worker error:', error);
-    });
+      logger.error('Embeddings worker error:', error)
+    })
 
     worker.on('exit', (code) => {
       if (code !== 0) {
-        logger.error(`Embeddings worker stopped with exit code ${code}`);
+        logger.error(`Embeddings worker stopped with exit code ${code}`)
       }
-      worker = null;
-    });
+      worker = null
+    })
   }
 }
 
 export const embed = async (text: string): Promise<number[]> => {
   try {
-    initializeWorker();
-    
+    initializeWorker()
+
     if (!worker) {
-      throw new Error('Embeddings worker not initialized');
+      throw new Error('Embeddings worker not initialized')
     }
 
     return new Promise((resolve, reject) => {
-      worker?.postMessage({ type: 'embed', text });
-      
+      worker?.postMessage({ type: 'embed', text })
+
       const messageHandler = (message: any) => {
         if (message.type === 'result') {
-          cleanup();
-          resolve(message.embedding);
+          cleanup()
+          resolve(message.embedding)
         } else if (message.type === 'error') {
-          cleanup();
-          reject(new Error(message.error));
+          cleanup()
+          reject(new Error(message.error))
         }
-      };
+      }
 
       const errorHandler = (error: Error) => {
-        cleanup();
-        reject(error);
-      };
+        cleanup()
+        reject(error)
+      }
 
       const cleanup = () => {
-        worker?.removeListener('message', messageHandler);
-        worker?.removeListener('error', errorHandler);
-      };
+        worker?.removeListener('message', messageHandler)
+        worker?.removeListener('error', errorHandler)
+      }
 
-      worker?.on('message', messageHandler);
-      worker?.on('error', errorHandler);
-    });
+      worker?.on('message', messageHandler)
+      worker?.on('error', errorHandler)
+    })
   } catch (error) {
-    logger.error('Embedding error:', error);
-    throw error;
+    logger.error('Embedding error:', error)
+    throw error
   }
-};
+}
 
 export const cleanup = () => {
   if (worker) {
-    worker.terminate();
-    worker = null;
+    worker.terminate()
+    worker = null
   }
-};
+}
