@@ -58,6 +58,22 @@ const cardVariants = {
   },
 };
 
+const handlePathClick = async (path: string, e: React.MouseEvent) => {
+  e.stopPropagation(); // Prevent triggering the card click
+  
+  if (path.startsWith('http')) {
+    // Open URLs in default browser
+    window.open(path, '_blank');
+  } else {
+    // Open local files using trpc
+    try {
+      await trpcClient.document.open.mutate(path);
+    } catch (error) {
+      console.error('Failed to open document:', error);
+    }
+  }
+};
+
 const SearchResults: React.FC<SearchResultsProps> = React.memo(
   ({ searchResults, selectedIndex, handleResultClick, rankedChunks }) => {
     // Group chunks by path and sort within groups by their original position
@@ -148,7 +164,17 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                     </div>
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold flex items-center gap-2">
-                        {displayName}
+                        <span 
+                          onClick={(e) => handlePathClick(result.metadata.path, e)}
+                          className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1"
+                        >
+                          {displayName}
+                          {isWebSource ? (
+                            <ExternalLink className="h-3 w-3" />
+                          ) : (
+                            <FileText className="h-3 w-3" />
+                          )}
+                        </span>
                         <span className="text-xs font-normal text-muted-foreground">
                           {isWebSource ? 'Web Source' : 'Document'}
                         </span>
@@ -157,7 +183,10 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                         </Badge>
                       </h3>
                       {isWebSource && (
-                        <div className="text-xs text-muted-foreground mt-1">
+                        <div 
+                          className="text-xs text-muted-foreground mt-1 hover:text-primary cursor-pointer transition-colors"
+                          onClick={(e) => handlePathClick(result.metadata.path, e)}
+                        >
                           {result.metadata.path}
                         </div>
                       )}

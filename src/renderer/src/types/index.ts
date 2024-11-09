@@ -21,4 +21,23 @@ export interface ContextTab {
 export interface Document {
   path: string;
   content: string;
+}
+
+export interface Source {
+  path: string;
+  description?: string;
+  relevance?: number;
+  preview?: string;
+  citations?: string[];
+}
+
+export interface AIResponse {
+  question: string;
+  answer: string;
+  timestamp: number;
+  sources?: Source[];
+}
+
+export interface ChatHistory {
+  conversations: AIResponse[]
 } 

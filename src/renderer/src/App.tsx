@@ -19,6 +19,8 @@ import { LLMSettings, ContextTab } from './types'
 import type { SearchBarRef } from '@/components/SearchBar'
 import { FileText, Globe } from 'lucide-react'
 import { getRankedChunks, RankedChunk } from '@/lib/context-utils'
+import { Button } from '@/components/ui/button'
+const ResponsePanel = React.lazy(() => import('@/components/ResponsePanel'))
 
 interface SearchResult {
   text: string
@@ -40,6 +42,7 @@ interface AIResponse {
   question: string
   answer: string
   timestamp: number
+  sources?: string[]
 }
 
 // Add custom Document interface at the top with other interfaces
@@ -52,6 +55,9 @@ interface CustomDocument {
     matchScore?: number
   }
 }
+
+// Add a new type for panel states
+type PanelState = 'none' | 'settings' | 'response' | 'document';
 
 function App(): JSX.Element {
   // State Definitions
@@ -94,13 +100,14 @@ function App(): JSX.Element {
     [isPrivate, privateSettings, publicSettings]
   )
 
-  const [currentConversation, setCurrentConversation] = useState<AIResponse | null>(null)
+  const [conversations, setConversations] = useState<AIResponse[]>([])
   const [contextDocuments, setContextDocuments] = useState<CustomDocument[]>([])
   const [hoveredCardPath, setHoveredCardPath] = useState<string | null>(null)
 
   const [contextTabs, setContextTabs] = useState<ContextTab[]>([])
 
-  const [activePanel, setActivePanel] = useState<'none' | 'chat' | 'document' | 'settings'>('none')
+  // Update the activePanel state to use the new type
+  const [activePanel, setActivePanel] = useState<PanelState>('response')
 
   const searchBarRef = useRef<SearchBarRef>(null)
 
@@ -166,14 +173,19 @@ function App(): JSX.Element {
     async (searchQuery: string) => {
       if (!searchQuery.trim()) {
         setShowResults(false)
+        setSearchResults([])
         return false
       }
       setIsLoading(true)
       try {
         const fileResults = await trpcClient.search.all.query(searchQuery)
+        if (fileResults.length === 0) {
+          setShowResults(false) // Collapse when no results
+        } else {
+          setShowResults(true)
+        }
         setSearchResults(fileResults)
-        setShowResults(true)
-        return true
+        return fileResults.length > 0
       } catch (error) {
         console.error('Search failed:', error)
         setSearchResults([])
@@ -192,6 +204,11 @@ function App(): JSX.Element {
       const newQuery = e.target.value
       setQuery(newQuery)
       setSelectedIndex(-1)
+
+      if (!newQuery.trim()) {
+        setShowResults(false)
+        setSearchResults([])
+      }
 
       // Clear any existing timeout
       if (searchTimeoutRef.current) {
@@ -296,29 +313,30 @@ function App(): JSX.Element {
 
   // Add AI Response to Context
   const addAIResponseToContext = useCallback(() => {
-    if (currentConversation) {
-      const aiResponseContent = `Q: ${currentConversation.question}\n\nA: ${currentConversation.answer}`
-      setContextDocuments((prev) => {
-        const exists = prev.some((doc) => doc.content === aiResponseContent)
+    if (conversations.length > 0) {
+      const lastConversation = conversations[conversations.length - 1]
+      const aiResponseContent = `Q: ${lastConversation.question}\n\nA: ${lastConversation.answer}`
+      setContextTabs((prev) => {
+        const exists = prev.some((tab) => tab.content === aiResponseContent)
         if (!exists) {
           return [
             ...prev,
             {
-              path: `AI Response (${new Date(currentConversation.timestamp).toLocaleTimeString()})`,
+              path: `AI Response (${new Date(lastConversation.timestamp).toLocaleTimeString()})`,
               content: aiResponseContent,
+              isExpanded: false,
               metadata: {
                 type: 'ai_response',
-                lastModified: Date.now()
+                lastModified: lastConversation.timestamp,
+                matchScore: 1
               }
             }
           ]
         }
         return prev
       })
-      setShowResults(true)
-      setActivePanel('document')
     }
-  }, [currentConversation])
+  }, [conversations])
 
   // Ask AI Question
   const askAIQuestion = useCallback(
@@ -343,6 +361,15 @@ function App(): JSX.Element {
 
         const baseModel = provider(currentSettings.model)
 
+        // Get relevant chunks for sources
+        const relevantChunks = rankedChunks
+          .filter(chunk => chunk.score > 0.5)
+          .map(chunk => ({
+            path: chunk.path,
+            text: chunk.text,
+            score: chunk.score
+          }))
+
         const contextMiddleware = createContextMiddleware({
           getContext: () => combinedSearchContext
         })
@@ -354,45 +381,114 @@ function App(): JSX.Element {
 
         const textStream = await streamText({
           model,
-          prompt: `Use the following context to answer the question. If the context doesn't contain relevant information, say so. Reply in a punchy manner, using markdown formatting without the codeblocks.
+          prompt: `Use the following context to answer the question. If the context doesn't contain relevant information, say so. 
+
+When citing sources, use markdown links in your response like this: [relevant text](path/to/source). Make sure to cite your sources inline as you use them.
+
+At the end of your response, include a "Sources:" section with a numbered list of all sources used and brief descriptions of how they were used.
 
 Context:
 ${combinedSearchContext}
 
 ${
-  currentConversation
-    ? `Previous question: ${currentConversation.question}
-Previous answer: ${currentConversation.answer}
-
-`
+  conversations.length > 0
+    ? `Previous conversations:\n${conversations
+        .map(
+          conv => `Q: ${conv.question}\nA: ${conv.answer}`
+        )
+        .join('\n\n')}\n\n`
     : ''
 }Question: ${prompt}
 
-Answer:`
+Answer with inline citations:`
         })
 
-        setCurrentConversation({
+        const newConversation: AIResponse = {
           question: prompt,
           answer: '',
-          timestamp: Date.now()
-        })
+          timestamp: Date.now(),
+          sources: []
+        }
+
+        setConversations(prev => [...prev, newConversation])
 
         let fullResponse = ''
+        let sourcesSection = ''
+
         for await (const textPart of textStream.textStream) {
           fullResponse += textPart
-          setCurrentConversation((prev) => ({
-            question: prev?.question || prompt,
-            answer: fullResponse,
-            timestamp: prev?.timestamp || Date.now()
-          }))
+          
+          // Extract markdown links from the response
+          const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
+          const links = Array.from(fullResponse.matchAll(markdownLinkRegex))
+          
+          // Parse sources section if present
+          const sourcesSplit = fullResponse.split('\nSources:')
+          const mainResponse = sourcesSplit[0].trim()
+          sourcesSection = sourcesSplit[1]?.trim() || ''
+
+          // Combine inline citations with sources section
+          const sources = new Map<string, Source>()
+
+          // Add inline citations
+          links.forEach(([, text, path]) => {
+            if (!sources.has(path)) {
+              sources.set(path, {
+                path,
+                preview: text,
+                citations: [text]
+              })
+            } else {
+              const existing = sources.get(path)!
+              if (!existing.citations?.includes(text)) {
+                existing.citations = [...(existing.citations || []), text]
+              }
+            }
+          })
+
+          // Add descriptions from sources section
+          if (sourcesSection) {
+            const sourceLines = sourcesSection.split('\n')
+            sourceLines.forEach(line => {
+              const match = line.match(/\d+\.\s+([^-]+)-(.+)/)
+              if (match) {
+                const [, path, description] = match
+                const cleanPath = path.trim()
+                if (sources.has(cleanPath)) {
+                  sources.get(cleanPath)!.description = description.trim()
+                } else {
+                  sources.set(cleanPath, {
+                    path: cleanPath,
+                    description: description.trim()
+                  })
+                }
+              }
+            })
+          }
+
+          setConversations(prev => 
+            prev.map((conv, i) => 
+              i === prev.length - 1 
+                ? { 
+                    ...conv, 
+                    answer: mainResponse,
+                    sources: Array.from(sources.values())
+                  }
+                : conv
+            )
+          )
         }
       } catch (error) {
         console.error('AI answer failed:', error)
-        setCurrentConversation({
-          question: prompt,
-          answer: 'Sorry, I encountered an error while generating the response.',
-          timestamp: Date.now()
-        })
+        setConversations(prev => [
+          ...prev,
+          {
+            question: prompt,
+            answer: 'Sorry, I encountered an error while generating the response.',
+            timestamp: Date.now(),
+            sources: []
+          }
+        ])
       } finally {
         setIsLoading(false)
       }
@@ -401,9 +497,10 @@ Answer:`
       showResults,
       searchResults,
       contextTabs,
-      currentConversation,
+      conversations,
       currentSettings,
-      combinedSearchContext
+      combinedSearchContext,
+      rankedChunks
     ]
   )
 
@@ -412,7 +509,7 @@ Answer:`
     async (e: KeyboardEvent): Promise<void> => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        if (activePanel === 'settings') {
+        if (activePanel !== 'none') {
           setActivePanel('none')
         } else {
           trpcClient.window.hide.mutate()
@@ -427,32 +524,43 @@ Answer:`
             return newTabs
           })
         } else {
-          // Toggle settings panel when no tabs are pinned
-          setActivePanel((prev) => (prev === 'settings' ? 'none' : 'settings'))
+          // Toggle between settings and response panels
+          setActivePanel((prev) => {
+            if (prev === 'settings') return 'response'
+            if (prev === 'response') return 'settings'
+            return 'settings'
+          })
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
+        // First check if settings panel is open
+        if (activePanel === 'settings') {
+          setActivePanel('response')
+          return
+        }
+
+        // Only proceed with pinning if settings panel is not open
         if (selectedIndex !== -1 && searchResults[selectedIndex]) {
           // Pin the selected document to context
           const result = searchResults[selectedIndex]
           if (!contextTabs.some((tab) => tab.path === result.metadata.path)) {
             fetchDocumentContent(result.metadata.path)
           }
-        } else if (selectedIndex === -1 && currentConversation) {
+        } else if (selectedIndex === -1 && conversations.length > 0) {
           // Pin AI response to context
-          const aiResponseContent = `Q: ${currentConversation.question}\n\nA: ${currentConversation.answer}`
+          const aiResponseContent = `Q: ${conversations[conversations.length - 1].question}\n\nA: ${conversations[conversations.length - 1].answer}`
           setContextTabs((prev) => {
             const exists = prev.some((tab) => tab.content === aiResponseContent)
             if (!exists) {
               return [
                 ...prev,
                 {
-                  path: `AI Response (${new Date(currentConversation.timestamp).toLocaleTimeString()})`,
+                  path: `AI Response (${new Date(conversations[conversations.length - 1].timestamp).toLocaleTimeString()})`,
                   content: aiResponseContent,
                   isExpanded: false,
                   metadata: {
                     type: 'ai_response',
-                    lastModified: currentConversation.timestamp,
+                    lastModified: conversations[conversations.length - 1].timestamp,
                     matchScore: 1
                   }
                 }
@@ -477,13 +585,13 @@ Answer:`
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        if (currentConversation || showResults) {
+        if (conversations || showResults) {
           const maxIndex = searchResults.length - 1
           setSelectedIndex((prev) => (prev === -1 ? 0 : Math.min(prev + 1, maxIndex)))
         }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        if (currentConversation || showResults) {
+        if (conversations || showResults) {
           setSelectedIndex((prev) => {
             if (prev === 0) return -1
             return prev > 0 ? prev - 1 : prev
@@ -509,7 +617,7 @@ Answer:`
       selectedIndex,
       searchResults,
       contextTabs,
-      currentConversation,
+      conversations,
       fetchDocumentContent,
       activePanel,
       query,
@@ -560,7 +668,7 @@ Answer:`
                 className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
                 style={{ width: 600 }}
               >
-                <CardContent className="p-4 flex flex-col h-full max-h-[600px]">
+                <CardContent className="p-4 flex flex-col h-[600px]">
                   <SettingsPanel
                     isPrivate={isPrivate}
                     setIsPrivate={setIsPrivate}
@@ -586,20 +694,11 @@ Answer:`
                 <div
                   className={cn(
                     'flex flex-col transition-all duration-200',
-                    currentConversation || (showResults && searchResults.length > 0)
+                    showResults && searchResults.length > 0
                       ? 'flex-none'
                       : 'flex-1 justify-center'
                   )}
                 >
-                  {/* AI Response Section */}
-                  {currentConversation && (
-                    <AIResponseCard
-                      currentConversation={currentConversation}
-                      selectedIndex={selectedIndex}
-                      addAIResponseToContext={addAIResponseToContext}
-                    />
-                  )}
-
                   {/* Search Bar Section */}
                   <SearchBar
                     ref={searchBarRef}
@@ -618,8 +717,8 @@ Answer:`
                     searchResults={searchResults}
                     selectedIndex={selectedIndex}
                     handleResultClick={(result) => {
-                      setActivePanel('document')
-                      if (!contextDocuments.some((doc) => doc.path === result.metadata.path)) {
+                      // Just fetch the document content and add to context tabs
+                      if (!contextTabs.some((tab) => tab.path === result.metadata.path)) {
                         fetchDocumentContent(result.metadata.path)
                       }
                     }}
@@ -630,17 +729,44 @@ Answer:`
             </CardContent>
           </Card>
 
-          {/* Document Viewer */}
-          {activePanel === 'document' && (
-            <Suspense fallback={<div>Loading Document Viewer...</div>}>
-              <DocumentViewer
-                contextDocuments={contextDocuments}
-                removeFromContext={(path: string) => {
-                  setContextDocuments(prev => prev.filter(doc => doc.path !== path))
-                }}
-                hoveredCardPath={hoveredCardPath}
-                setHoveredCardPath={setHoveredCardPath}
-              />
+          {/* AI Response Panel */}
+          {conversations.length > 0 && activePanel === 'response' && (
+            <Suspense fallback={<div>Loading Response Panel...</div>}>
+              <Card
+                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+                style={{ width: 600 }}
+              >
+                <CardContent className="p-4 flex flex-col h-[600px]">
+                  <ResponsePanel
+                    conversations={conversations}
+                    addAIResponseToContext={() => {
+                      if (conversations.length > 0) {
+                        const lastConversation = conversations[conversations.length - 1]
+                        const aiResponseContent = `Q: ${lastConversation.question}\n\nA: ${lastConversation.answer}`
+                        setContextTabs((prev) => {
+                          const exists = prev.some((tab) => tab.content === aiResponseContent)
+                          if (!exists) {
+                            return [
+                              ...prev,
+                              {
+                                path: `AI Response (${new Date(lastConversation.timestamp).toLocaleTimeString()})`,
+                                content: aiResponseContent,
+                                isExpanded: false,
+                                metadata: {
+                                  type: 'ai_response',
+                                  lastModified: lastConversation.timestamp,
+                                  matchScore: 1
+                                }
+                              }
+                            ]
+                          }
+                          return prev
+                        })
+                      }
+                    }}
+                  />
+                </CardContent>
+              </Card>
             </Suspense>
           )}
 

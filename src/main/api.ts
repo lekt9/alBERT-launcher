@@ -28,34 +28,23 @@ export const getRouter = (window: BrowserWindow) => {
           log.error('Error reading file:', error)
           throw error
         }
+      }),
+      open: t.procedure.input(z.string()).mutation(async ({ input: filePath }) => {
+        log.info('tRPC Call: document.open', filePath)
+        try {
+          if (filePath.startsWith('http')) {
+            // Open URLs in default browser
+            await shell.openExternal(filePath)
+          } else {
+            // Open local files
+            await shell.openPath(path.resolve(filePath))
+          }
+          return true
+        } catch (error) {
+          log.error('Error opening file:', error)
+          return false
+        }
       })
-    }),
-
-    embeddings: router({
-      embed: t.procedure
-        .input(z.union([z.string(), z.array(z.string())]))
-        .query(async ({ input }) => {
-          const textArray = Array.isArray(input) ? input : [input]
-          const results = await embed(textArray)
-          return Array.isArray(input) ? results : results[0]
-        }),
-      rerank: t.procedure
-        .input(
-          z.object({
-            query: z.string(),
-            documents: z.array(z.string()),
-            options: z
-              .object({
-                top_k: z.number().optional(),
-                return_documents: z.boolean().optional()
-              })
-              .optional()
-          })
-        )
-        .query(async ({ input }) => {
-          const { query, documents, options = {} } = input
-          return await rerank(query, documents, options)
-        })
     }),
 
     search: router({
@@ -123,19 +112,6 @@ export const getRouter = (window: BrowserWindow) => {
           log.error('Failed to open alBERT folder:', error)
         })
       })
-    }),
-
-    file: router({
-      open: t.procedure.input(z.string()).mutation(async ({ input }) => {
-        try {
-          const filePath = path.resolve(input)
-          await shell.openPath(filePath)
-          return true
-        } catch (error) {
-          console.error('Failed to open file:', error)
-          return false
-        }
-      })
     })
   })
 }
@@ -147,109 +123,49 @@ async function searchFiles(searchTerm: string) {
   return await searchDB.search(searchTerm)
 }
 
-// Add retry utility function at the top
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-const retryWithBackoff = async <T>(
-  fn: () => Promise<T>,
-  retries = 3,
-  baseDelay = 1000,
-  maxDelay = 5000
-): Promise<T> => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn()
-    } catch (error) {
-      if (i === retries - 1) throw error
-
-      // Calculate delay with exponential backoff
-      const delay = Math.min(baseDelay * Math.pow(2, i), maxDelay)
-      // Add some jitter
-      const jitter = Math.random() * 200
-      await wait(delay + jitter)
-
-      log.warn(`Retry ${i + 1}/${retries} for web search after ${delay}ms`)
-    }
-  }
-  throw new Error('Retry failed')
-}
-
-// Update the searchWeb function with retry logic
 async function searchWeb(searchTerm: string) {
   try {
-    const searchResults = await retryWithBackoff(
-      async () =>
-        braveSearch.webSearch(searchTerm, {
-          count: 5,
-          search_lang: 'en',
-          country: 'US',
-          text_decorations: false
-        }),
-      3, // 3 retries
-      1000, // Start with 1s delay
-      5000 // Max 5s delay
-    )
+    const searchResults = await braveSearch.webSearch(searchTerm, {
+      count: 5,
+      search_lang: 'en',
+      country: 'US',
+      text_decorations: false
+    })
 
     if (!searchResults.web?.results) {
       return []
     }
-    const processedResults = (
-      await Promise.allSettled(
-        searchResults.web.results.map(async (result) => {
-          try {
-            // Also add retry for content fetching
-            const content = await retryWithBackoff(
-              () => readContent(result.url),
-              2, // 2 retries for content
-              500, // Start with 500ms delay
-              2000 // Max 2s delay
-            )
 
-            return {
-              text: content,
-              metadata: {
-                path: result.url,
-                title: result.title,
-                created_at: Date.now() / 1000,
-                modified_at: Date.now() / 1000,
-                filetype: 'web',
-                languages: ['en'],
-                links: [result.url],
-                owner: null,
-                seen_at: Date.now() / 1000
-              }
+    const processedResults = await Promise.all(
+      searchResults.web.results.map(async (result) => {
+        try {
+          const content = await readContent(result.url)
+          return {
+            text: content,
+            metadata: {
+              path: result.url,
+              title: result.title,
+              created_at: Date.now() / 1000,
+              modified_at: Date.now() / 1000,
+              filetype: 'web',
+              languages: ['en'],
+              links: [result.url],
+              owner: null,
+              seen_at: Date.now() / 1000,
+              sourceType: 'web'
             }
-          } catch (error) {
-            log.error(`Failed to extract content from ${result.url} after retries:`, error)
-            return null
           }
-        })
-      )
+        } catch (error) {
+          log.error(`Failed to extract content from ${result.url}:`, error)
+          return null
+        }
+      })
     )
-      .filter(
-        (
-          result
-        ): result is PromiseFulfilledResult<{
-          text: string
-          dist: number
-          metadata: {
-            path: string
-            created_at: number
-            modified_at: number
-            filetype: string
-            languages: string[]
-            links: string[]
-            owner: string | null
-            seen_at: number
-          }
-        }> => result.status === 'fulfilled' && result.value !== null
-      )
-      .map((result) => result.value)
 
-    return processedResults
+    return processedResults.filter(Boolean)
   } catch (error) {
-    log.error('Error performing web search after all retries:', error)
-    throw error
+    log.error('Error performing web search:', error)
+    return []
   }
 }
 
