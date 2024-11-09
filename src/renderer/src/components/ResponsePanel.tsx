@@ -19,9 +19,15 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIRespo
   const scrollRef = useRef<HTMLDivElement>(null)
   const completedConversations = conversations.filter((conv) => conv.answer)
 
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [conversations])
+
   if (!completedConversations.length) return null
 
-  const handleSourceClick = async (path: string) => {
+  const handleSourceClick = async (path: string): Promise<void> => {
     if (path.startsWith('http')) {
       window.open(path, '_blank')
     } else {
@@ -32,13 +38,6 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIRespo
       }
     }
   }
-
-  // Scroll to bottom when new messages arrive
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [conversations])
 
   return (
     <ScrollArea className="h-full">
@@ -62,7 +61,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIRespo
                 </div>
               </div>
               <button
-                onClick={() => addAIResponseToContext()}
+                onClick={addAIResponseToContext}
                 className="p-2 hover:bg-accent rounded-full"
                 title="Pin to context"
               >
@@ -77,12 +76,12 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIRespo
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    a: ({ node, ...props }) => (
+                    a: ({ ...props }) => (
                       <Button onClick={() => handleSourceClick(props.href || '')} variant="link">
                         {props.children}
                       </Button>
                     ),
-                    code: ({ node, inline, className, children, ...props }) => {
+                    code: ({ inline, className, children, ...props }) => {
                       const match = /language-(\w+)/.exec(className || '')
                       return !inline && match ? (
                         <SyntaxHighlighter

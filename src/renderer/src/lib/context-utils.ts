@@ -1,4 +1,3 @@
-import { trpcClient } from '../util/trpc-client'
 import { splitContent } from './utils'
 
 export interface RankedChunk {
@@ -11,7 +10,7 @@ export interface RankedChunk {
 export async function getRankedChunks({
   query,
   documents,
-  chunkSize = 400,
+  chunkSize = 1000,
   chunkOverlap = 20,
   minScore = 0.1
 }: {
@@ -33,35 +32,35 @@ export async function getRankedChunks({
       path: doc.path,
       type: doc.type
     }))
-  })
+  }).filter(chunk => chunk.text && chunk.text.length > 0)
 
   if (allChunks.length === 0) {
     return []
   }
 
-  try {
-    const rankings = await trpcClient.embeddings.rerank.query({
-      query,
-      documents: allChunks.map(chunk => chunk.text.slice(0,100))
-    })
+//   try {
+//     const rankings = await trpcClient.embeddings.rerank.query({
+//       query,
+//       documents: allChunks.map(chunk => chunk.text)
+//     })
 
-    // Combine rankings with chunk metadata
-    const rankedChunks = rankings.map((score, index) => ({
-      ...allChunks[index],
-      score
-    }))
+//     // Combine rankings with chunk metadata
+//     const rankedChunks = rankings.map((score, index) => ({
+//       ...allChunks[index],
+//       score
+//     }))
 
-    // Sort by score and filter low-relevance chunks
-    return rankedChunks
-      .sort((a, b) => b.score - a.score)
-      .filter(chunk => chunk.score > minScore)
+//     // Sort by score and filter low-relevance chunks
+//     return rankedChunks
+//       .sort((a, b) => b.score - a.score)
+//       .filter(chunk => chunk.score > minScore)
 
-  } catch (error) {
-    console.error('Error reranking chunks:', error)
+//   } catch (error) {
+    // console.error('Error reranking chunks:', error)
     // Fallback: return chunks in original order with default scoring
     return allChunks.map((chunk, index) => ({
       ...chunk,
       score: 1 - (index / allChunks.length)
     }))
-  }
+  
 } 
