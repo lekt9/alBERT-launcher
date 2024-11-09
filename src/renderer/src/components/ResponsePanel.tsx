@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react'
-import { MessageSquare, Pin, FileText, ExternalLink } from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { MessageSquare, Pin, FileText, ExternalLink, Send } from 'lucide-react'
 import { AIResponse } from '@/types'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import ReactMarkdown from 'react-markdown'
@@ -9,14 +9,24 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Card } from '@/components/ui/card'
 import { trpcClient } from '../util/trpc-client'
 import { Button } from './ui/button'
+import { Input } from './ui/input'
 
 interface ResponsePanelProps {
   conversations: AIResponse[]
   addAIResponseToContext: () => void
+  askAIQuestion: (question: string) => Promise<void>
+  isLoading: boolean
 }
 
-const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIResponseToContext }) => {
+const ResponsePanel: React.FC<ResponsePanelProps> = ({ 
+  conversations, 
+  addAIResponseToContext, 
+  askAIQuestion,
+  isLoading 
+}) => {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [followUpQuestion, setFollowUpQuestion] = useState('')
   const completedConversations = conversations.filter((conv) => conv.answer)
 
   useEffect(() => {
@@ -24,6 +34,19 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIRespo
       scrollRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [conversations])
+
+  const handleFollowUpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!followUpQuestion.trim() || isLoading) return
+
+    await askAIQuestion(followUpQuestion)
+    setFollowUpQuestion('')
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Don't trigger global keyboard shortcuts when typing in the input
+    e.stopPropagation()
+  }
 
   if (!completedConversations.length) return null
 
@@ -160,6 +183,25 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({ conversations, addAIRespo
           </Card>
         ))}
         <div ref={scrollRef} />
+
+        {/* Follow-up Question Input */}
+        <form onSubmit={handleFollowUpSubmit} className="sticky bottom-0 bg-background/95 p-4 border-t">
+          <div className="flex gap-2">
+            <Input
+              ref={inputRef}
+              type="text"
+              placeholder="Ask a follow-up question..."
+              value={followUpQuestion}
+              onChange={(e) => setFollowUpQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              className="flex-1"
+            />
+            <Button type="submit" size="icon" disabled={isLoading || !followUpQuestion.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </form>
       </div>
     </ScrollArea>
   )

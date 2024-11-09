@@ -125,7 +125,7 @@ function App(): JSX.Element {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isPrivate, setIsPrivate] = useState<boolean>(() => {
     const savedPrivacy = localStorage.getItem('llm-privacy')
-    return savedPrivacy ? JSON.parse(savedPrivacy) : true
+    return savedPrivacy ? JSON.parse(savedPrivacy) : false
   })
 
   const [privateSettings, setPrivateSettings] = useState<LLMSettings>(() => {
@@ -370,7 +370,7 @@ Answer with inline citations:`
   // Add state machine
   const [searchState, dispatch] = useReducer(searchReducer, { status: 'idle' })
 
-  // Update debouncedSearch to use state machine
+  // Update debouncedSearch to wait for full search before chat
   const debouncedSearch = useCallback(
     async (searchQuery: string, shouldChat = false) => {
       if (!searchQuery.trim()) {
@@ -394,58 +394,80 @@ Answer with inline citations:`
           payload: { query: searchQuery, results: cachedResults }
         })
 
-        // If shouldChat is true, start chat immediately with cached results
         if (shouldChat) {
-          dispatch({
-            type: 'START_CHAT',
-            payload: { query: searchQuery, results: cachedResults }
-          })
-          await askAIQuestion(searchQuery)
-          dispatch({ type: 'CHAT_COMPLETE' })
-        } else {
-          setIsLoading(false)
+          // Even with cached results, perform a fresh full search before chat
+          try {
+            const fullResults = await trpcClient.search.full.query(searchQuery)
+            if (fullResults.length > 0) {
+              setSearchResults(fullResults)
+              dispatch({
+                type: 'START_CHAT',
+                payload: { query: searchQuery, results: fullResults }
+              })
+              await askAIQuestion(searchQuery)
+              dispatch({ type: 'CHAT_COMPLETE' })
+            }
+          } catch (error) {
+            console.error('Full search failed:', error)
+            dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
+          }
         }
-
+        setIsLoading(false)
         return true
       }
 
       try {
-        const fileResults = await trpcClient.search.all.query(searchQuery)
-        if (fileResults.length === 0) {
-          setShowResults(false)
-          dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
-          setIsLoading(false)
-        } else {
-          setShowResults(true)
-          setSearchResults(fileResults)
+        if (shouldChat) {
+          // For chat, first do quick search to show results immediately
+          const quickResults = await trpcClient.search.quick.query(searchQuery)
+          if (quickResults.length > 0) {
+            setShowResults(true)
+            setSearchResults(quickResults)
+            dispatch({
+              type: 'SEARCH_SUCCESS',
+              payload: { query: searchQuery, results: quickResults }
+            })
+          }
 
-          // Update cache
-          setSearchCache((prev) => {
-            const newCache = [
-              { query: searchQuery, results: fileResults, timestamp: Date.now() },
-              ...prev.filter((item) => item.query !== searchQuery)
-            ].slice(0, 5)
-            return newCache
-          })
+          // Then perform full search before starting chat
+          const fullResults = await trpcClient.search.full.query(searchQuery)
+          if (fullResults.length === 0) {
+            setShowResults(false)
+            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
+          } else {
+            setSearchResults(fullResults)
+            setSearchCache((prev) => {
+              const newCache = [
+                { query: searchQuery, results: fullResults, timestamp: Date.now() },
+                ...prev.filter((item) => item.query !== searchQuery)
+              ].slice(0, 5)
+              return newCache
+            })
 
-          dispatch({
-            type: 'SEARCH_SUCCESS',
-            payload: { query: searchQuery, results: fileResults }
-          })
-
-          // If shouldChat is true, start chat after search completes
-          if (shouldChat) {
             dispatch({
               type: 'START_CHAT',
-              payload: { query: searchQuery, results: fileResults }
+              payload: { query: searchQuery, results: fullResults }
             })
             await askAIQuestion(searchQuery)
             dispatch({ type: 'CHAT_COMPLETE' })
+          }
+        } else {
+          // For regular search, just use quick search
+          const quickResults = await trpcClient.search.quick.query(searchQuery)
+          if (quickResults.length === 0) {
+            setShowResults(false)
+            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
           } else {
-            setIsLoading(false)
+            setShowResults(true)
+            setSearchResults(quickResults)
+            dispatch({
+              type: 'SEARCH_SUCCESS',
+              payload: { query: searchQuery, results: quickResults }
+            })
           }
         }
-        return fileResults.length > 0
+        setIsLoading(false)
+        return true
       } catch (error) {
         console.error('Search failed:', error)
         setSearchResults([])
@@ -458,13 +480,12 @@ Answer with inline citations:`
     [getCachedResults, askAIQuestion]
   )
 
-  // Update the handleInputChange function
+  // Update handleInputChange to always use quick search
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const newQuery = e.target.value
       setQuery(newQuery)
       setSelectedIndex(-1)
-      // Reset the Enter pressed flag when input changes
       enterPressedDuringSearch.current = false
 
       if (!newQuery.trim()) {
@@ -473,15 +494,13 @@ Answer with inline citations:`
         return
       }
 
-      // Clear any existing timeout
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current)
       }
 
-      // Set new timeout for search
       searchTimeoutRef.current = setTimeout(() => {
-        debouncedSearch(newQuery)
-      }, 800) // Reduced to 300ms for better responsiveness
+        debouncedSearch(newQuery, false) // Always use quick search for typing
+      }, 800)
     },
     [debouncedSearch]
   )
@@ -643,49 +662,42 @@ Answer with inline citations:`
         e.preventDefault()
         if (!query.trim()) return
 
-        switch (searchState.status) {
-          case 'idle':
-            // Start new search with chat flag
-            dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } })
-            await debouncedSearch(query, true)
-            break
+        setIsLoading(true)
+        dispatch({ type: 'START_SEARCH', payload: { query } })
 
-          case 'searching':
-            // Just mark that we want to chat when search completes
-            dispatch({
-              type: 'START_SEARCH',
-              payload: { query: searchState.query, shouldChat: true }
-            })
-            break
+        try {
+          // Always perform full search first
+          const fullResults = await trpcClient.search.full.query(query)
+          
+          if (fullResults.length === 0) {
+            setShowResults(false)
+            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
+            return
+          }
 
-          case 'searched':
-            if (searchState.query === query) {
-              // Search is complete for current query, start chat
-              dispatch({
-                type: 'START_CHAT',
-                payload: {
-                  query: searchState.query,
-                  results: searchState.results
-                }
-              })
-              await askAIQuestion(query)
-              dispatch({ type: 'CHAT_COMPLETE' })
-            } else {
-              // Query changed, start new search with chat flag
-              dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } })
-              await debouncedSearch(query, true)
-            }
-            break
+          // Update search results and cache
+          setSearchResults(fullResults)
+          setShowResults(true)
+          setSearchCache((prev) => {
+            const newCache = [
+              { query, results: fullResults, timestamp: Date.now() },
+              ...prev.filter((item) => item.query !== query)
+            ].slice(0, 5)
+            return newCache
+          })
 
-          case 'chatting':
-            // Do nothing, wait for chat to complete
-            break
+          // Wait for context to be updated
+          await new Promise(resolve => setTimeout(resolve, 100))
 
-          case 'error':
-            // Try search again with chat flag
-            dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } })
-            await debouncedSearch(query, true)
-            break
+          // Start chat after context is populated
+          dispatch({ type: 'START_CHAT', payload: { query, results: fullResults } })
+          await askAIQuestion(query)
+          dispatch({ type: 'CHAT_COMPLETE' })
+        } catch (error) {
+          console.error('Search or chat failed:', error)
+          dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
+        } finally {
+          setIsLoading(false)
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -717,7 +729,7 @@ Answer with inline citations:`
         openAlBERTFolder()
       }
     },
-    [query, searchState, debouncedSearch, askAIQuestion]
+    [query, searchState, activePanel, contextTabs, selectedIndex, searchResults, conversations, askAIQuestion]
   )
 
   useEffect(() => {
@@ -899,6 +911,8 @@ Answer with inline citations:`
                         })
                       }
                     }}
+                    askAIQuestion={askAIQuestion}
+                    isLoading={isLoading}
                   />
                 </CardContent>
               </Card>

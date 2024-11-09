@@ -75,8 +75,27 @@ export const getRouter = (window: BrowserWindow) => {
     }),
 
     search: router({
-      all: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
-        log.info('tRPC Call: search.all')
+      quick: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
+        log.info('tRPC Call: search.quick')
+        try {
+          const [fileResults, webResults] = await Promise.all([
+            searchFiles(searchTerm),
+            quickSearchWeb(searchTerm)
+          ])
+
+          const combinedResults = [...fileResults, ...webResults].filter(
+            (result) => result.text && result.text.trim().length > 0
+          )
+
+          return combinedResults
+        } catch (error) {
+          log.error('Error performing quick search:', error)
+          throw error
+        }
+      }),
+
+      full: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
+        log.info('tRPC Call: search.full')
         try {
           const [fileResults, webResults] = await Promise.all([
             searchFiles(searchTerm),
@@ -91,13 +110,12 @@ export const getRouter = (window: BrowserWindow) => {
             return []
           }
 
-          // Use reranking instead of embeddings
+          // Use reranking
           const rankings = await rerank(
             searchTerm,
             combinedResults.map((r) => r.text)
           )
 
-          // Combine the reranking scores with the original results
           const rankedResults = combinedResults.map((result, index) => ({
             ...result,
             dist: rankings[index]
@@ -105,7 +123,7 @@ export const getRouter = (window: BrowserWindow) => {
 
           return rankedResults.sort((a, b) => b.dist - a.dist)
         } catch (error) {
-          log.error('Error performing combined search:', error)
+          log.error('Error performing full search:', error)
           throw error
         }
       })
@@ -192,6 +210,41 @@ async function searchWeb(searchTerm: string) {
     return processedResults.filter(Boolean)
   } catch (error) {
     log.error('Error performing web search:', error)
+    return []
+  }
+}
+
+async function quickSearchWeb(searchTerm: string) {
+  try {
+    const searchResults = await braveSearch.webSearch(searchTerm, {
+      count: 5,
+      search_lang: 'en',
+      country: 'US',
+      text_decorations: false
+    })
+
+    if (!searchResults.web?.results) {
+      return []
+    }
+
+    // Use description instead of fetching full content
+    return searchResults.web.results.map(result => ({
+      text: result.description || result.title,
+      metadata: {
+        path: result.url,
+        title: result.title,
+        created_at: Date.now() / 1000,
+        modified_at: Date.now() / 1000,
+        filetype: 'web',
+        languages: ['en'],
+        links: [result.url],
+        owner: null,
+        seen_at: Date.now() / 1000,
+        sourceType: 'web'
+      }
+    }))
+  } catch (error) {
+    log.error('Error performing quick web search:', error)
     return []
   }
 }
