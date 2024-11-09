@@ -126,8 +126,16 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
     }, [rankedChunks, searchResults])
 
     return (
-      <div className="flex-1 overflow-hidden">
-        <ScrollArea className="transition-all duration-200 h-[500px]">
+      <div className={cn(
+        "flex-1 overflow-hidden",
+        // Add conditional class to remove padding/margin when no results
+        searchResults.length === 0 ? "h-0" : ""
+      )}>
+        <ScrollArea className={cn(
+          "h-full",
+          // Remove padding when no results
+          searchResults.length === 0 ? "p-0" : ""
+        )}>
           {groupedChunks.map((chunk, index) => {
             const result = searchResults.find(r => r.metadata.path === chunk.path)
             if (!result) return null
@@ -185,11 +193,11 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                           )}
                         </span>
                         <span className="text-xs font-normal text-muted-foreground">
-                          {isWebSource ? 'Web Source' : 'Document'}
+                          {isWebSource ? 'Web' : 'Document'}
                         </span>
-                        <Badge variant="secondary" className="ml-2">
+                        {/* <Badge variant="secondary" className="ml-2">
                           Score: {chunk.score.toFixed(2)}
-                        </Badge>
+                        </Badge> */}
                       </h3>
                       {isWebSource && (
                         <div 
@@ -215,13 +223,15 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
             )
           })}
         </ScrollArea>
-        <div className="flex items-center mt-2 text-xs text-muted-foreground">
-          <span>
-            {selectedIndex === -1
-              ? 'Press → to pin to context'
-              : 'Press ↑ to select'}
-          </span>
-        </div>
+        {searchResults.length > 0 && (
+          <div className="flex items-center mt-2 text-xs text-muted-foreground">
+            <span>
+              {selectedIndex === -1
+                ? 'Press → to pin to context'
+                : 'Press ↑ to select'}
+            </span>
+          </div>
+        )}
       </div>
     )
   }

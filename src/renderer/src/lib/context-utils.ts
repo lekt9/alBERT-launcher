@@ -1,4 +1,5 @@
 import { splitContent } from './utils'
+import { trpcClient } from '@/util/trpc-client'
 
 export interface RankedChunk {
   text: string
@@ -41,7 +42,7 @@ export async function getRankedChunks({
   try {
     const rankings = await trpcClient.embeddings.rerank.query({
       query,
-      documents: allChunks.map(chunk => chunk.text)
+      documents: allChunks.map(chunk => chunk.text.slice(0, 350))
     })
 
     // Combine rankings with chunk metadata

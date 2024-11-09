@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo, Suspense, useRef, useReducer } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  Suspense,
+  useRef,
+  useReducer
+} from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { trpcClient } from './util/trpc-client'
 import { cn } from '@/lib/utils'
@@ -42,71 +50,69 @@ interface AIResponse {
   sources?: Source[]
 }
 
-// Add custom Document interface at the top with other interfaces
-interface CustomDocument {
-  path: string
-  content: string
-  metadata?: {
-    type: string
-    lastModified: number
-    matchScore?: number
-  }
-}
-
 // Add a new type for panel states
 type PanelState = 'none' | 'settings' | 'response' | 'document' | 'chat'
 
 // Add this interface near the top with other interfaces
 interface Source {
-  path: string;
-  preview?: string;
-  citations?: string[];
-  description?: string;
+  path: string
+  preview?: string
+  citations?: string[]
+  description?: string
 }
 
 // Add this interface near the top
 interface CachedSearch {
-  query: string;
-  results: SearchResult[];
-  timestamp: number;
+  query: string
+  results: SearchResult[]
+  timestamp: number
 }
 
 // Add these types near the top with other interfaces
-type SearchState = 
+type SearchState =
   | { status: 'idle' }
   | { status: 'searching'; query: string; shouldChat?: boolean }
   | { status: 'searched'; query: string; results: SearchResult[] }
   | { status: 'chatting'; query: string; results: SearchResult[] }
-  | { status: 'error'; error: string };
+  | { status: 'error'; error: string }
 
 // Add this reducer function before the App component
-function searchReducer(state: SearchState, action: {
-  type: 'START_SEARCH' | 'SEARCH_SUCCESS' | 'SEARCH_ERROR' | 'START_CHAT' | 'CHAT_COMPLETE' | 'RESET';
-  payload?: any;
-}): SearchState {
+function searchReducer(
+  state: SearchState,
+  action: {
+    type:
+      | 'START_SEARCH'
+      | 'SEARCH_SUCCESS'
+      | 'SEARCH_ERROR'
+      | 'START_CHAT'
+      | 'CHAT_COMPLETE'
+      | 'RESET'
+    payload?: any
+  }
+): SearchState {
   switch (action.type) {
     case 'START_SEARCH':
-      return { status: 'searching', query: action.payload };
+      return { status: 'searching', query: action.payload }
     case 'SEARCH_SUCCESS':
-      return { 
-        status: 'searched', 
-        query: action.payload.query, 
-        results: action.payload.results 
-      };
+      return {
+        status: 'searched',
+        query: action.payload.query,
+        results: action.payload.results
+      }
     case 'SEARCH_ERROR':
-      return { status: 'error', error: action.payload };
+      return { status: 'error', error: action.payload }
     case 'START_CHAT':
-      return { 
-        status: 'chatting', 
-        query: action.payload.query, 
-        results: action.payload.results 
-      };
+      return {
+        status: 'chatting',
+        query: action.payload.query,
+        results: action.payload.results
+      }
     case 'CHAT_COMPLETE':
-      return { status: 'idle' };
+      return { status: 'idle' }
     case 'RESET':
-      return { status: 'idle' };
+      return { status: 'idle' }
     default:
-      return state;
+      return state
   }
 }
 
@@ -169,20 +175,21 @@ function App(): JSX.Element {
   // Add cache state
   const [searchCache, setSearchCache] = useState<CachedSearch[]>([])
 
-  // Add this near other state definitions
-  const pendingChatRef = useRef<string | null>(null)
-
   // Add this state to track if Enter was pressed during search
   const enterPressedDuringSearch = useRef<boolean>(false)
 
   // Add this helper function near other utility functions
-  const getCachedResults = useCallback((query: string) => {
-    const cached = searchCache.find(item => item.query === query)
-    if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) { // Cache valid for 5 minutes
-      return cached.results
-    }
-    return null
-  }, [searchCache])
+  const getCachedResults = useCallback(
+    (query: string) => {
+      const cached = searchCache.find((item) => item.query === query)
+      if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+        // Cache valid for 5 minutes
+        return cached.results
+      }
+      return null
+    },
+    [searchCache]
+  )
 
   // Add effect to handle reranking
   useEffect(() => {
@@ -361,87 +368,95 @@ Answer with inline citations:`
   )
 
   // Add state machine
-  const [searchState, dispatch] = useReducer(searchReducer, { status: 'idle' });
+  const [searchState, dispatch] = useReducer(searchReducer, { status: 'idle' })
 
   // Update debouncedSearch to use state machine
   const debouncedSearch = useCallback(
     async (searchQuery: string, shouldChat = false) => {
       if (!searchQuery.trim()) {
-        dispatch({ type: 'RESET' });
-        setShowResults(false);
-        setSearchResults([]);
-        return false;
+        dispatch({ type: 'RESET' })
+        setShowResults(false)
+        setSearchResults([])
+        setIsLoading(false)
+        return false
       }
 
-      dispatch({ type: 'START_SEARCH', payload: { query: searchQuery, shouldChat } });
+      setIsLoading(true)
+      dispatch({ type: 'START_SEARCH', payload: { query: searchQuery, shouldChat } })
 
       // Check cache first
-      const cachedResults = getCachedResults(searchQuery);
+      const cachedResults = getCachedResults(searchQuery)
       if (cachedResults) {
-        setSearchResults(cachedResults);
-        setShowResults(true);
-        dispatch({ 
-          type: 'SEARCH_SUCCESS', 
-          payload: { query: searchQuery, results: cachedResults } 
-        });
-        
+        setSearchResults(cachedResults)
+        setShowResults(true)
+        dispatch({
+          type: 'SEARCH_SUCCESS',
+          payload: { query: searchQuery, results: cachedResults }
+        })
+
         // If shouldChat is true, start chat immediately with cached results
         if (shouldChat) {
-          dispatch({ 
-            type: 'START_CHAT', 
-            payload: { query: searchQuery, results: cachedResults } 
-          });
-          await askAIQuestion(searchQuery);
-          dispatch({ type: 'CHAT_COMPLETE' });
+          dispatch({
+            type: 'START_CHAT',
+            payload: { query: searchQuery, results: cachedResults }
+          })
+          await askAIQuestion(searchQuery)
+          dispatch({ type: 'CHAT_COMPLETE' })
+        } else {
+          setIsLoading(false)
         }
-        
-        return true;
+
+        return true
       }
 
       try {
-        const fileResults = await trpcClient.search.all.query(searchQuery);
+        const fileResults = await trpcClient.search.all.query(searchQuery)
         if (fileResults.length === 0) {
-          setShowResults(false);
-          dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' });
+          setShowResults(false)
+          dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
+          setIsLoading(false)
         } else {
-          setShowResults(true);
-          setSearchResults(fileResults);
-          
+          setShowResults(true)
+          setSearchResults(fileResults)
+
           // Update cache
-          setSearchCache(prev => {
+          setSearchCache((prev) => {
             const newCache = [
               { query: searchQuery, results: fileResults, timestamp: Date.now() },
-              ...prev.filter(item => item.query !== searchQuery)
-            ].slice(0, 5);
-            return newCache;
-          });
+              ...prev.filter((item) => item.query !== searchQuery)
+            ].slice(0, 5)
+            return newCache
+          })
 
-          dispatch({ 
-            type: 'SEARCH_SUCCESS', 
-            payload: { query: searchQuery, results: fileResults } 
-          });
+          dispatch({
+            type: 'SEARCH_SUCCESS',
+            payload: { query: searchQuery, results: fileResults }
+          })
 
           // If shouldChat is true, start chat after search completes
           if (shouldChat) {
-            dispatch({ 
-              type: 'START_CHAT', 
-              payload: { query: searchQuery, results: fileResults } 
-            });
-            await askAIQuestion(searchQuery);
-            dispatch({ type: 'CHAT_COMPLETE' });
+            dispatch({
+              type: 'START_CHAT',
+              payload: { query: searchQuery, results: fileResults }
+            })
+            await askAIQuestion(searchQuery)
+            dispatch({ type: 'CHAT_COMPLETE' })
+          } else {
+            setIsLoading(false)
           }
         }
-        return fileResults.length > 0;
+        return fileResults.length > 0
       } catch (error) {
-        console.error('Search failed:', error);
-        setSearchResults([]);
-        setShowResults(false);
-        dispatch({ type: 'SEARCH_ERROR', payload: String(error) });
-        return false;
+        console.error('Search failed:', error)
+        setSearchResults([])
+        setShowResults(false)
+        dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
+        setIsLoading(false)
+        return false
       }
     },
     [getCachedResults, askAIQuestion]
-  );
+  )
 
   // Update the handleInputChange function
   const handleInputChange = useCallback(
@@ -559,33 +574,6 @@ Answer with inline citations:`
     }
   }, [])
 
-  // Add AI Response to Context
-  const addAIResponseToContext = useCallback(() => {
-    if (conversations.length > 0) {
-      const lastConversation = conversations[conversations.length - 1]
-      const aiResponseContent = `Q: ${lastConversation.question}\n\nA: ${lastConversation.answer}`
-      setContextTabs((prev) => {
-        const exists = prev.some((tab) => tab.content === aiResponseContent)
-        if (!exists) {
-          return [
-            ...prev,
-            {
-              path: `AI Response (${new Date(lastConversation.timestamp).toLocaleTimeString()})`,
-              content: aiResponseContent,
-              isExpanded: false,
-              metadata: {
-                type: 'ai_response',
-                lastModified: lastConversation.timestamp,
-                matchScore: 1
-              }
-            }
-          ]
-        }
-        return prev
-      })
-    }
-  }, [conversations])
-
   // Keyboard Event Handler
   const handleKeyDown = useCallback(
     async (e: KeyboardEvent): Promise<void> => {
@@ -652,49 +640,52 @@ Answer with inline citations:`
           })
         }
       } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (!query.trim()) return;
+        e.preventDefault()
+        if (!query.trim()) return
 
         switch (searchState.status) {
           case 'idle':
             // Start new search with chat flag
-            dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } });
-            await debouncedSearch(query, true);
-            break;
+            dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } })
+            await debouncedSearch(query, true)
+            break
 
           case 'searching':
             // Just mark that we want to chat when search completes
-            dispatch({ type: 'START_SEARCH', payload: { query: searchState.query, shouldChat: true } });
-            break;
+            dispatch({
+              type: 'START_SEARCH',
+              payload: { query: searchState.query, shouldChat: true }
+            })
+            break
 
           case 'searched':
             if (searchState.query === query) {
               // Search is complete for current query, start chat
-              dispatch({ 
-                type: 'START_CHAT', 
-                payload: { 
-                  query: searchState.query, 
-                  results: searchState.results 
-                } 
-              });
-              await askAIQuestion(query);
-              dispatch({ type: 'CHAT_COMPLETE' });
+              dispatch({
+                type: 'START_CHAT',
+                payload: {
+                  query: searchState.query,
+                  results: searchState.results
+                }
+              })
+              await askAIQuestion(query)
+              dispatch({ type: 'CHAT_COMPLETE' })
             } else {
               // Query changed, start new search with chat flag
-              dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } });
-              await debouncedSearch(query, true);
+              dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } })
+              await debouncedSearch(query, true)
             }
-            break;
+            break
 
           case 'chatting':
             // Do nothing, wait for chat to complete
-            break;
+            break
 
           case 'error':
             // Try search again with chat flag
-            dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } });
-            await debouncedSearch(query, true);
-            break;
+            dispatch({ type: 'START_SEARCH', payload: { query, shouldChat: true } })
+            await debouncedSearch(query, true)
+            break
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -727,7 +718,7 @@ Answer with inline citations:`
       }
     },
     [query, searchState, debouncedSearch, askAIQuestion]
-  );
+  )
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -757,9 +748,7 @@ Answer with inline citations:`
   // Add cleanup effect for cache
   useEffect(() => {
     const cleanupInterval = setInterval(() => {
-      setSearchCache(prev => 
-        prev.filter(item => Date.now() - item.timestamp < 5 * 60 * 1000)
-      )
+      setSearchCache((prev) => prev.filter((item) => Date.now() - item.timestamp < 5 * 60 * 1000))
     }, 60 * 1000) // Clean up every minute
 
     return () => clearInterval(cleanupInterval)
@@ -771,31 +760,31 @@ Answer with inline citations:`
       case 'searched':
         // If this was a search triggered by wanting to chat, start the chat
         if (enterPressedDuringSearch.current) {
-          enterPressedDuringSearch.current = false;
-          dispatch({ 
-            type: 'START_CHAT', 
-            payload: { 
-              query: searchState.query, 
-              results: searchState.results 
-            } 
-          });
-          askAIQuestion(searchState.query);
+          enterPressedDuringSearch.current = false
+          dispatch({
+            type: 'START_CHAT',
+            payload: {
+              query: searchState.query,
+              results: searchState.results
+            }
+          })
+          askAIQuestion(searchState.query)
         }
-        break;
+        break
 
       case 'chatting':
-        setIsLoading(true);
-        break;
+        setIsLoading(true)
+        break
 
       case 'idle':
-        setIsLoading(false);
-        break;
+        setIsLoading(false)
+        break
 
       case 'error':
-        setIsLoading(false);
-        break;
+        setIsLoading(false)
+        break
     }
-  }, [searchState]);
+  }, [searchState])
 
   return (
     <div
@@ -833,34 +822,37 @@ Answer with inline citations:`
             className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
             style={{ width: 600 }}
           >
-            <CardContent className="p-0 flex-1 flex flex-col h-[600px]">
-              <div className="flex flex-col h-full">
-                {/* Container that centers search when no content */}
-                <div
-                  className={cn(
-                    'flex flex-col transition-all duration-200',
-                    showResults && searchResults.length > 0 ? 'flex-none' : 'flex-1 justify-center'
-                  )}
-                >
-                  {/* Search Bar Section */}
-                  <SearchBar
-                    ref={searchBarRef}
-                    query={query}
-                    setQuery={setQuery}
-                    isLoading={isLoading}
-                    isPrivate={isPrivate}
-                    handlePrivacyToggle={setIsPrivate}
-                    handleInputChange={handleInputChange}
-                  />
-                </div>
+            <CardContent
+              className={cn(
+                'p-0 flex flex-col',
+                // Remove any padding/spacing when no results
+                showResults && searchResults.length > 0 ? 'h-[600px]' : 'h-auto'
+              )}
+            >
+              <div
+                className={cn(
+                  'flex flex-col',
+                  // Remove the height and any spacing when no results
+                  showResults && searchResults.length > 0 ? 'h-full' : 'h-auto'
+                )}
+              >
+                {/* Search Bar Section */}
+                <SearchBar
+                  ref={searchBarRef}
+                  query={query}
+                  setQuery={setQuery}
+                  isLoading={isLoading}
+                  isPrivate={isPrivate}
+                  handlePrivacyToggle={setIsPrivate}
+                  handleInputChange={handleInputChange}
+                />
 
                 {/* Results Section */}
-                {showResults && searchResults.length > 0 && (
+                {showResults && (
                   <SearchResults
                     searchResults={searchResults}
                     selectedIndex={selectedIndex}
                     handleResultClick={(result) => {
-                      // Just fetch the document content and add to context tabs
                       if (!contextTabs.some((tab) => tab.path === result.metadata.path)) {
                         fetchDocumentContent(result.metadata.path)
                       }
