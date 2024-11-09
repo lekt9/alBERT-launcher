@@ -20,7 +20,9 @@ export const createContextMiddleware = (
           role: 'system',
           content: `You are a helpful AI assistant. Use the following context to answer questions:
 
-${context}`
+${context}
+
+Make sure you respond in a punchy manner that is concise and to the point without unnecessary fluff, and use markdown to format your message well!`
         },
         {
           role: 'user',
