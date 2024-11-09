@@ -240,6 +240,11 @@ class SearchDB {
     }
   }>> {
     try {
+      if (index !== -1) {
+        badPorts.splice(index, 1)
+      }
+      // Replace global fetch with our monkeypatched fetch
+      global.fetch = require('undici').fetch
       const vector = await embed(searchTerm)
       const result = await this.client.graphql
         .get()

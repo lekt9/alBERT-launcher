@@ -8,20 +8,22 @@ import React, {
   useReducer
 } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
-import { trpcClient } from './util/trpc-client'
+import { getContextSimilarityScores, trpcClient } from './util/trpc-client'
 import { cn } from '@/lib/utils'
 import SearchBar from '@/components/SearchBar'
 import SearchResults from '@/components/SearchResults'
 import ContextTabs from '@/components/ContextTabs'
 const SettingsPanel = React.lazy(() => import('@/components/SettingsPanel'))
 import { KeyboardShortcuts } from '@/components/navigation/KeyboardShortcuts'
-import { streamText, experimental_wrapLanguageModel as wrapLanguageModel } from 'ai'
+import { generateText, streamText, experimental_wrapLanguageModel as wrapLanguageModel } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createContextMiddleware } from './lib/context-middleware'
 import { LLMSettings, ContextTab } from './types'
 import type { SearchBarRef } from '@/components/SearchBar'
 import { getRankedChunks, RankedChunk } from '@/lib/context-utils'
 const ResponsePanel = React.lazy(() => import('@/components/ResponsePanel'))
+import SearchBadges, { SearchStep } from '@/components/SearchBadges'
+import { v4 as uuidv4 } from 'uuid'
 
 interface SearchResult {
   text: string
@@ -116,6 +118,7 @@ function searchReducer(
   }
 }
 
+// First, move combinedSearchContext before the functions that use it
 function App(): JSX.Element {
   // State Definitions
   const [query, setQuery] = useState<string>('')
@@ -156,6 +159,17 @@ function App(): JSX.Element {
     () => (isPrivate ? privateSettings : publicSettings),
     [isPrivate, privateSettings, publicSettings]
   )
+
+  const provider =
+    currentSettings.modelType === 'openai'
+      ? createOpenAI({
+          apiKey: currentSettings.apiKey,
+          baseUrl: currentSettings.baseUrl
+        })
+      : createOpenAI({
+          apiKey: currentSettings.apiKey,
+          baseUrl: 'http://localhost:11434/v1'
+        })
 
   const [conversations, setConversations] = useState<AIResponse[]>([])
 
@@ -224,49 +238,563 @@ function App(): JSX.Element {
     }
   }, [query, searchResults, contextTabs])
 
-  // Update combinedSearchContext to use rankedChunks
+  // Update combinedSearchContext to be synchronous
   const combinedSearchContext = useMemo(() => {
     const MAX_CONTEXT_LENGTH = 50000
     let context = ''
-    let remainingLength = MAX_CONTEXT_LENGTH
 
-    // Build context from ranked chunks
-    for (const chunk of rankedChunks) {
-      if (chunk.text && chunk.text.length <= remainingLength) {
-        context += `\n\nFrom ${chunk.path}${chunk.type === 'pinned' ? ' (pinned)' : ''}:\n${chunk.text}`
-        remainingLength -= chunk.text.length
+    // Get all documents for scoring
+    const documents = [
+      ...contextTabs.map((tab) => ({
+        content: tab.content,
+        path: tab.path,
+        type: 'pinned' as const
+      })),
+      ...searchResults.map((result) => ({
+        content: result.text,
+        path: result.metadata.path,
+        type: result.metadata.sourceType === 'web' ? 'web' : 'document'
+      }))
+    ]
+
+    if (documents.length === 0) return ''
+
+    try {
+      // Calculate total content length and select documents up to MAX_CONTEXT_LENGTH
+      let currentLength = 0
+      const selectedDocuments = documents
+        .sort((a, b) => {
+          // Prioritize pinned documents
+          if (a.type === 'pinned' && b.type !== 'pinned') return -1
+          if (a.type !== 'pinned' && b.type === 'pinned') return 1
+          return 0
+        })
+        .filter(doc => {
+          const length = doc.content.length
+          if (currentLength + length <= MAX_CONTEXT_LENGTH) {
+            currentLength += length
+            return true
+          }
+          return false
+        })
+
+      // Build context from selected documents
+      context = selectedDocuments
+        .map(doc => {
+          const relevanceNote = doc.type === 'pinned' ? ' (pinned)' : ''
+          return `\n\nFrom ${doc.path}${relevanceNote}:\n${doc.content}`
+        })
+        .join('')
+
+      return context.trim()
+    } catch (error) {
+      console.error('Error building context:', error)
+      return ''
+    }
+  }, [query, searchResults, contextTabs])
+
+  // Add a separate effect to update similarity scores
+  const [documentScores, setDocumentScores] = useState<Map<string, number>>(new Map())
+
+  useEffect(() => {
+    const updateSimilarityScores = async () => {
+      const documents = [
+        ...contextTabs.map((tab) => ({
+          content: tab.content,
+          path: tab.path,
+          type: 'pinned' as const
+        })),
+        ...searchResults.map((result) => ({
+          content: result.text,
+          path: result.metadata.path,
+          type: result.metadata.sourceType === 'web' ? 'web' : 'document'
+        }))
+      ]
+
+      if (documents.length === 0) return
+
+      try {
+        const similarityScores = await getContextSimilarityScores(
+          [query],
+          documents
+        )
+
+        const scoreMap = new Map<string, number>()
+        similarityScores.forEach((doc) => {
+          const score = doc.type === 'pinned' 
+            ? doc.scores[0] * 1.2 // Apply 1.2x multiplier for pinned content
+            : doc.scores[0]
+          scoreMap.set(doc.path, score)
+        })
+
+        setDocumentScores(scoreMap)
+      } catch (error) {
+        console.error('Error calculating similarity scores:', error)
       }
-      if (remainingLength <= 0) break
     }
 
-    return context.trim()
-  }, [rankedChunks])
+    if (query) {
+      updateSimilarityScores()
+    }
+  }, [query, searchResults, contextTabs])
 
-  // Move askAIQuestion before debouncedSearch
-  const askAIQuestion = useCallback(
-    async (prompt: string) => {
-      if (!showResults || searchResults.length === 0) {
-        console.warn('Search results are not ready yet.')
-        return
+  // Then update generateChatResponse to use the synchronous context
+  const generateChatResponse = useCallback(
+    async (
+      model: any,
+      originalQuery: string,
+      subQueryContext: string = ''
+    ): Promise<{ textStream: AsyncIterable<string> }> => {
+      return streamText({
+        model,
+        prompt: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. If the context doesn't contain relevant information, say so.
+
+When citing sources, use markdown links in your response like this: [relevant text](path/to/source). Make sure to cite your sources inline, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
+
+Context (sorted by relevance):
+${combinedSearchContext}
+
+${subQueryContext ? `\nReasoning steps:\n${subQueryContext}` : ''}
+
+${conversations.length > 0
+  ? `Previous conversations:\n${conversations
+      .map((conv) => `Q: ${conv.question}\nA: ${conv.answer}`)
+      .join('\n\n')}\n\n`
+  : ''}
+Question: ${originalQuery}
+
+Answer with inline citations:`
+      })
+    },
+    [combinedSearchContext, conversations]
+  )
+
+  // Add to your state definitions
+  const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
+
+  // Update the breakDownQuery function to use only necessary context
+  const breakDownQuery = async (
+    query: string,
+    existingContext: string = ''
+  ): Promise<string[]> => {
+    // Use only the chain of reasoning from previous sub-queries (existingContext)
+    // and the ranked/truncated combinedSearchContext
+    const fullContext = [
+      existingContext,
+      combinedSearchContext
+    ].filter(Boolean).join('\n\n')
+
+    const contextMiddleware = createContextMiddleware({
+      getContext: () => fullContext
+    })
+
+    const model = wrapLanguageModel({
+      model: provider(currentSettings.model),
+      middleware: contextMiddleware
+    })
+
+    const text = await generateText({
+      model,
+      prompt: `Based on the available context and the main query, determine the next most important search query needed to gather comprehensive information.
+
+Main Query: ${query}
+
+${fullContext ? `Current Context:\n${fullContext}\n\n` : ''}
+
+Chain of Reasoning:
+${existingContext ? `Previous findings:\n${existingContext}\n\n` : ''}
+
+Instructions:
+1. Analyze the main query and all available context
+2. Consider what information is already available from the context and previous findings
+3. Identify the most important missing information needed
+4. If the current context is sufficient to answer the main query, return exactly: "CONTEXT_SUFFICIENT"
+5. Otherwise, provide ONE specific search query that would help gather the most relevant missing information
+
+Response (either a specific search query or CONTEXT_SUFFICIENT):`
+    })
+
+    const response = text.text.trim()
+    console.log('Generated sub-query or response:', response) // Debug log
+
+    if (response === 'CONTEXT_SUFFICIENT') {
+      return []
+    }
+
+    return [response]
+  }
+
+  // Update the evaluateSearchResults function to use similarity scoring
+  const evaluateSearchResults = async (
+    originalQuery: string,
+    subQuery: string,
+    results: SearchResult[]
+  ): Promise<{ hasAnswer: boolean; answer?: string }> => {
+    try {
+      const documents = results.map(result => ({
+        content: result.text || '',
+        path: result.metadata?.path || '',
+        type: result.metadata?.sourceType === 'web' ? 'web' : 'document'
+      }))
+
+      // Get similarity scores for both original query and subquery
+      const similarityScores = await getContextSimilarityScores(
+        [originalQuery, subQuery],
+        documents
+      )
+
+      // Combine scores with documents and sort by relevance
+      const scoredDocuments = documents.map((doc, index) => ({
+        ...doc,
+        // Combine scores with weighted average (0.4 for original query, 0.6 for subquery)
+        combinedScore: similarityScores[index].scores[0] * 0.4 + 
+                      similarityScores[index].scores[1] * 0.6
+      }))
+      .sort((a, b) => b.combinedScore - a.combinedScore)
+
+      // Calculate total content length and select documents up to MAX_CONTEXT_LENGTH
+      const MAX_CONTEXT_LENGTH = 8000 // Smaller context for sub-queries
+      let currentLength = 0
+      const selectedDocuments = scoredDocuments.filter(doc => {
+        if (currentLength + doc.content.length <= MAX_CONTEXT_LENGTH) {
+          currentLength += doc.content.length
+          return true
+        }
+        return false
+      })
+
+      // Use getRankedChunks without minScore, let it handle all selected documents
+      const rankedChunks = await getRankedChunks({
+        query: subQuery,
+        documents: selectedDocuments,
+        chunkSize: 500
+      })
+
+      if (!rankedChunks.length) {
+        console.log('No ranked chunks found')
+        return { hasAnswer: false }
       }
 
-      setIsLoading(true)
+      // Build context from ranked chunks, including similarity scores
+      const context = rankedChunks
+        .map(chunk => {
+          const docScore = scoredDocuments.find(d => d.path === chunk.path)?.combinedScore || 0
+          return `From ${chunk.path} (relevance: ${docScore.toFixed(2)}):\n${chunk.text}`
+        })
+        .join('\n\n')
+
+      if (!context.trim()) {
+        console.log('Empty context after ranking')
+        return { hasAnswer: false }
+      }
+
+      const contextMiddleware = createContextMiddleware({
+        getContext: () => context
+      })
+
+      const model = wrapLanguageModel({
+        model: provider(currentSettings.model),
+        middleware: contextMiddleware
+      })
+
+      const text = await generateText({
+        model,
+        prompt: `Given these ranked and similarity-scored search results, evaluate if they contain enough relevant information to answer the sub-query "${subQuery}" (which is part of answering the main query "${originalQuery}").
+
+Consider both the content and the relevance scores when determining if the information is sufficient and reliable.
+
+If there is NOT enough relevant information, return exactly: "INSUFFICIENT_CONTEXT"
+
+If there IS enough information, provide a very concise answer under 1000 characters that captures the key information from the most relevant sources. Format your response like this:
+ANSWER: your answer here
+
+Search Results:
+${context}
+
+Response:`
+      })
+
+      const response = text.text.trim()
+      console.log('AI Response:', response)
+
+      if (response === 'INSUFFICIENT_CONTEXT') {
+        return { hasAnswer: false }
+      }
+
+      const answer = response.startsWith('ANSWER:') ? response.slice(7).trim() : response
+      return { hasAnswer: true, answer }
+    } catch (error) {
+      console.error('Error in evaluateSearchResults:', error)
+      return { hasAnswer: false }
+    }
+  }
+
+  // Update askAIQuestion to use the new generateChatResponse
+  const askAIQuestion = useCallback(
+    async (originalQuery: string) => {
+      setSearchSteps([])
+      let allResults: SearchResult[] = []
+      const subQueryAnswers: { query: string; answer: string }[] = []
+      let currentContext = ''
+
       try {
-        const provider =
-          currentSettings.modelType === 'openai'
-            ? createOpenAI({
-                apiKey: currentSettings.apiKey,
-                baseUrl: currentSettings.baseUrl
-              })
-            : createOpenAI({
-                apiKey: currentSettings.apiKey,
-                baseUrl: 'http://localhost:11434/v1'
+        let keepSearching = true
+        while (keepSearching) {
+          // Add thinking step
+          const thinkingStepId = uuidv4()
+          setSearchSteps((prev) => [
+            ...prev,
+            {
+              id: thinkingStepId,
+              query: 'Breaking down query...',
+              status: 'thinking'
+            }
+          ])
+
+          // Get next search query based on current context
+          const nextQueries = await breakDownQuery(originalQuery, currentContext)
+
+          if (nextQueries.length === 0) {
+            // Update thinking step to complete
+            setSearchSteps((prev) =>
+              prev.map((step) =>
+                step.id === thinkingStepId
+                  ? {
+                      ...step,
+                      status: 'complete',
+                      query: 'Context is sufficient',
+                      answer: 'Found all needed information'
+                    }
+                  : step
+              )
+            )
+            keepSearching = false
+            continue
+          }
+
+          const subQuery = nextQueries[0]
+
+          // Update thinking step with the generated query
+          setSearchSteps((prev) =>
+            prev.map((step) =>
+              step.id === thinkingStepId
+                ? {
+                    ...step,
+                    status: 'complete',
+                    query: `Generated sub-query: ${subQuery}`
+                  }
+                : step
+            )
+          )
+
+          // Add search step
+          const searchStepId = uuidv4()
+          setSearchSteps((prev) => [
+            ...prev,
+            {
+              id: searchStepId,
+              query: subQuery,
+              status: 'searching'
+            }
+          ])
+
+          try {
+            // Perform search for this query
+            const results = await trpcClient.search.full.query(subQuery)
+            console.log('Search results for subquery:', subQuery, results)
+
+            if (!results || !Array.isArray(results) || results.length === 0) {
+              console.log('No results found for subquery:', subQuery)
+              setSearchSteps(prev =>
+                prev.map(step =>
+                  step.id === searchStepId
+                    ? {
+                        ...step,
+                        status: 'failed',
+                        answer: 'No results found'
+                      }
+                    : step
+                )
+              )
+              continue
+            }
+
+            // Add new results to collection and update state
+            const newResults = results.filter(r => r && r.text) as SearchResult[]
+            allResults = [...allResults, ...newResults]
+            
+            // Update the searchResults state with accumulated results
+            setSearchResults(prev => {
+              const combined = [...prev, ...newResults]
+              // Remove duplicates based on path
+              const unique = combined.filter((result, index, self) =>
+                index === self.findIndex(r => r.metadata.path === result.metadata.path)
+              )
+              return unique
+            })
+
+            // Update search step with results
+            setSearchSteps(prev =>
+              prev.map(step =>
+                step.id === searchStepId
+                  ? {
+                      ...step,
+                      status: 'complete',
+                      results: newResults
+                    }
+                  : step
+              )
+            )
+
+            // Add thinking step for evaluation
+            const evalStepId = uuidv4()
+            setSearchSteps((prev) => [
+              ...prev,
+              {
+                id: evalStepId,
+                query: 'Evaluating results...',
+                status: 'thinking'
+              }
+            ])
+
+            // Evaluate and get answer
+            const evaluation = await evaluateSearchResults(originalQuery, subQuery, allResults)
+
+            if (evaluation.hasAnswer && evaluation.answer) {
+              // Update search step with results
+              setSearchSteps((prev) =>
+                prev.map((step) => {
+                  if (step.id === searchStepId) {
+                    return {
+                      ...step,
+                      status: 'complete',
+                      results: results as SearchResult[]
+                    }
+                  }
+                  if (step.id === evalStepId) {
+                    return {
+                      ...step,
+                      status: 'complete',
+                      query: 'Found relevant information',
+                      answer: evaluation.answer?.slice(0, 50) + (evaluation.answer?.length > 50 ? '...' : '')
+                    }
+                  }
+                  return step
+                })
+              )
+
+              subQueryAnswers.push({
+                query: subQuery,
+                answer: evaluation.answer
               })
 
+              // Update current context with the new answer
+              currentContext = subQueryAnswers
+                .map((sqa) => `Q: ${sqa.query}\nA: ${sqa.answer}`)
+                .join('\n\n')
+
+              // Add thinking step for sufficiency check
+              const sufficiencyStepId = uuidv4()
+              setSearchSteps((prev) => [
+                ...prev,
+                {
+                  id: sufficiencyStepId,
+                  query: 'Checking if we have enough information...',
+                  status: 'thinking'
+                }
+              ])
+
+              // Check if current context is sufficient
+              const sufficiencyCheck = await generateText({
+                model: wrapLanguageModel({
+                  model: provider(currentSettings.model),
+                  middleware: createContextMiddleware({
+                    getContext: () => currentContext
+                  })
+                }),
+                prompt: `Given the following context and sub-answers, determine if we have sufficient information to fully answer the original query: "${originalQuery}"
+
+Context from sub-queries:
+${currentContext}
+
+Return only "SUFFICIENT" or "INSUFFICIENT":`
+              })
+
+              const isSufficient = sufficiencyCheck.text.trim() === 'SUFFICIENT'
+
+              // Update sufficiency check step
+              setSearchSteps((prev) =>
+                prev.map((step) =>
+                  step.id === sufficiencyStepId
+                    ? {
+                        ...step,
+                        status: 'complete',
+                        query: isSufficient ? 'Found your answer!' : 'Need more information',
+                        answer: isSufficient ? 'Answering your question...' : 'Continuing search'
+                      }
+                    : step
+                )
+              )
+
+              if (isSufficient) {
+                keepSearching = false
+              }
+            } else {
+              // Update steps to show insufficient results
+              setSearchSteps((prev) =>
+                prev.map((step) => {
+                  if (step.id === searchStepId) {
+                    return {
+                      ...step,
+                      status: 'complete',
+                      results: results as SearchResult[]
+                    }
+                  }
+                  if (step.id === evalStepId) {
+                    return {
+                      ...step,
+                      status: 'failed',
+                      query: 'Insufficient information',
+                      answer: 'Trying different approach'
+                    }
+                  }
+                  return step
+                })
+              )
+            }
+          } catch (error) {
+            console.error('Search error:', error)
+            setSearchSteps(prev =>
+              prev.map(step =>
+                step.id === searchStepId
+                  ? {
+                      ...step,
+                      status: 'failed',
+                      answer: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                    }
+                  : step
+              )
+            )
+          }
+        }
+
+        // After all searches are complete, update the cache with all accumulated results
+        setSearchCache(prev => {
+          const newCache = [
+            { 
+              query: originalQuery, 
+              results: allResults,
+              timestamp: Date.now() 
+            },
+            ...prev.filter(item => item.query !== originalQuery)
+          ].slice(0, 5)
+          return newCache
+        })
+
+        // Proceed with final response using all gathered information
         const baseModel = provider(currentSettings.model)
-
         const contextMiddleware = createContextMiddleware({
-          getContext: () => combinedSearchContext
+          getContext: () => '' // Context will be provided in the prompt
         })
 
         const model = wrapLanguageModel({
@@ -274,28 +802,17 @@ function App(): JSX.Element {
           middleware: contextMiddleware
         })
 
-        const textStream = await streamText({
-          model,
-          prompt: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible.  If the context doesn't contain relevant information, say so. 
+        // Include sub-query answers in the context
+        const subQueryContext = subQueryAnswers.length > 0
+          ? subQueryAnswers
+              .map((sqa) => `Question: ${sqa.query}\nAnswer: ${sqa.answer}`)
+              .join('\n\n')
+          : ''
 
-When citing sources, use markdown links in your response like this: [relevant text](path/to/source). Make sure to cite your sources inline, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
-
-Context:
-${combinedSearchContext}
-
-${
-  conversations.length > 0
-    ? `Previous conversations:\n${conversations
-        .map((conv) => `Q: ${conv.question}\nA: ${conv.answer}`)
-        .join('\n\n')}\n\n`
-    : ''
-}Question: ${prompt}
-
-Answer with inline citations:`
-        })
-
+        const textStream = await generateChatResponse(model, originalQuery, subQueryContext)
+        
         const newConversation: AIResponse = {
-          question: prompt,
+          question: originalQuery,
           answer: '',
           timestamp: Date.now(),
           sources: []
@@ -354,7 +871,7 @@ Answer with inline citations:`
         setConversations((prev) => [
           ...prev,
           {
-            question: prompt,
+            question: originalQuery,
             answer: 'Sorry, I encountered an error while generating the response.',
             timestamp: Date.now(),
             sources: []
@@ -364,7 +881,7 @@ Answer with inline citations:`
         setIsLoading(false)
       }
     },
-    [showResults, searchResults, currentSettings, combinedSearchContext, conversations]
+    [currentSettings, combinedSearchContext, conversations]
   )
 
   // Add state machine
@@ -668,7 +1185,7 @@ Answer with inline citations:`
         try {
           // Always perform full search first
           const fullResults = await trpcClient.search.full.query(query)
-          
+          console.log('evaluateSearchResults fullResults', fullResults)
           if (fullResults.length === 0) {
             setShowResults(false)
             dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
@@ -678,6 +1195,7 @@ Answer with inline citations:`
           // Update search results and cache
           setSearchResults(fullResults)
           setShowResults(true)
+          console.log('setSearchResults fullResults', fullResults)
           setSearchCache((prev) => {
             const newCache = [
               { query, results: fullResults, timestamp: Date.now() },
@@ -687,7 +1205,8 @@ Answer with inline citations:`
           })
 
           // Wait for context to be updated
-          await new Promise(resolve => setTimeout(resolve, 100))
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          console.log('setSearchCache fullResults', fullResults)
 
           // Start chat after context is populated
           dispatch({ type: 'START_CHAT', payload: { query, results: fullResults } })
@@ -729,7 +1248,16 @@ Answer with inline citations:`
         openAlBERTFolder()
       }
     },
-    [query, searchState, activePanel, contextTabs, selectedIndex, searchResults, conversations, askAIQuestion]
+    [
+      query,
+      searchState,
+      activePanel,
+      contextTabs,
+      selectedIndex,
+      searchResults,
+      conversations,
+      askAIQuestion
+    ]
   )
 
   useEffect(() => {
@@ -849,6 +1377,11 @@ Answer with inline citations:`
                 )}
               >
                 {/* Search Bar Section */}
+                {searchSteps.length > 0 && (
+                  <div className="px-4 pt-4">
+                    <SearchBadges steps={searchSteps} />
+                  </div>
+                )}
                 <SearchBar
                   ref={searchBarRef}
                   query={query}

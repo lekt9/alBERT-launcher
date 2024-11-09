@@ -160,12 +160,6 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
                                 {new Date(tab.metadata.lastModified).toLocaleDateString()}
                               </div>
                             )}
-                            {tab.metadata?.matchScore && (
-                              <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Percent className="h-3 w-3" />
-                                {(tab.metadata.matchScore * 100).toFixed(1)}% match
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>

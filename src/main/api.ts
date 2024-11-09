@@ -12,7 +12,7 @@ const t = initTRPC.create({
   isServer: true
 })
 
-const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || 'BSAptOw_xjYBpxDm33wl0OEhsUBPBXP')
+const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || 'BSAl9amg1Hel8m8nwWsszt-j6DuAXiZ')
 
 export const getRouter = (window: BrowserWindow) => {
   const router = t.router
@@ -71,6 +71,34 @@ export const getRouter = (window: BrowserWindow) => {
         .query(async ({ input }) => {
           const { query, documents, options = {} } = input
           return await rerank(query, documents, options)
+        }),
+      getSimilarityScores: t.procedure
+        .input(
+          z.object({
+            queries: z.array(z.string()),
+            documents: z.array(z.string())
+          })
+        )
+        .query(async ({ input }) => {
+          const { queries, documents } = input
+          
+          // Get embeddings for queries and documents
+          const [queryEmbeddings, docEmbeddings] = await Promise.all([
+            embed(queries),
+            embed(documents)
+          ])
+
+          // Calculate cosine similarity scores
+          const scores = queryEmbeddings.map(queryEmb => 
+            docEmbeddings.map(docEmb => {
+              const dotProduct = queryEmb.reduce((sum, val, i) => sum + val * docEmb[i], 0)
+              const queryNorm = Math.sqrt(queryEmb.reduce((sum, val) => sum + val * val, 0))
+              const docNorm = Math.sqrt(docEmb.reduce((sum, val) => sum + val * val, 0))
+              return dotProduct / (queryNorm * docNorm)
+            })
+          )
+
+          return scores
         })
     }),
 
