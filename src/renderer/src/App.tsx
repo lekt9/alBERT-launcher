@@ -18,6 +18,7 @@ import { createContextMiddleware } from './lib/context-middleware'
 import { LLMSettings, ContextTab } from './types'
 import type { SearchBarRef } from '@/components/SearchBar'
 import { FileText, Globe } from 'lucide-react'
+import { getRankedChunks, RankedChunk } from '@/lib/context-utils'
 
 interface SearchResult {
   text: string
@@ -106,72 +107,59 @@ function App(): JSX.Element {
   // Add this near your other state definitions
   const searchTimeoutRef = useRef<NodeJS.Timeout>()
 
-  // Add this near your other useMemo hooks
+  // Add to state definitions
+  const [rankedChunks, setRankedChunks] = useState<RankedChunk[]>([])
+
+  // Add effect to handle reranking
+  useEffect(() => {
+    const updateRankedChunks = async () => {
+      const documents = [
+        ...contextTabs.map(tab => ({
+          content: tab.content,
+          path: tab.path,
+          type: 'pinned' as const
+        })),
+        ...searchResults.map(result => ({
+          content: result.text,
+          path: result.metadata.path,
+          type: result.metadata.sourceType === 'web' ? 'web' : 'document'
+        }))
+      ]
+
+      const chunks = await getRankedChunks({
+        query,
+        documents,
+        chunkSize: 500,
+        minScore: 0.1
+      })
+
+      setRankedChunks(chunks)
+    }
+
+    if (query && (searchResults.length > 0 || contextTabs.length > 0)) {
+      updateRankedChunks()
+    } else {
+      setRankedChunks([])
+    }
+  }, [query, searchResults, contextTabs])
+
+  // Update combinedSearchContext to use rankedChunks
   const combinedSearchContext = useMemo(() => {
     const MAX_CONTEXT_LENGTH = 50000
-    const CHUNK_SIZE = 500
-    const CHUNK_OVERLAP = 20
-
-    // Process search results
-    const searchResultDocs = searchResults.map((result) => ({
-      content: result.text,
-      path: result.metadata.path,
-      similarity: 1 - result.dist, // Convert distance to similarity (0-1)
-      type: 'search'
-    }))
-
-    // Process pinned documents (context tabs)
-    const pinnedDocs = contextTabs.map((tab) => ({
-      content: tab.content,
-      path: tab.path,
-      similarity: tab.metadata?.matchScore || 0,
-      type: 'pinned'
-    }))
-
-    // Combine and sort documents by similarity
-    const allDocs = [...pinnedDocs, ...searchResultDocs].sort((a, b) => b.similarity - a.similarity)
-
-    // Process each document into chunks while maintaining document order
-    const processedDocs = allDocs.map((doc) => {
-      const chunks = splitContent(doc.content, CHUNK_SIZE, CHUNK_OVERLAP)
-      return {
-        ...doc,
-        chunks,
-        totalLength: chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-      }
-    })
-
-    // Build context string while respecting MAX_CONTEXT_LENGTH
     let context = ''
     let remainingLength = MAX_CONTEXT_LENGTH
 
-    // First pass: Add at least one chunk from each document if possible
-    processedDocs.forEach((doc) => {
-      if (remainingLength > 0 && doc.chunks.length > 0) {
-        const firstChunk = doc.chunks[0]
-        if (firstChunk.length <= remainingLength) {
-          context += `\n\nFrom ${doc.path}${doc.type === 'pinned' ? ' (pinned)' : ''}:\n${firstChunk}`
-          remainingLength -= firstChunk.length
-        }
+    // Build context from ranked chunks
+    for (const chunk of rankedChunks) {
+      if (chunk.text.length <= remainingLength) {
+        context += `\n\nFrom ${chunk.path}${chunk.type === 'pinned' ? ' (pinned)' : ''}:\n${chunk.text}`
+        remainingLength -= chunk.text.length
       }
-    })
-
-    // Second pass: Fill remaining context with additional chunks
-    processedDocs.forEach((doc) => {
-      // Skip first chunk as it's already been added
-      for (let i = 1; i < doc.chunks.length && remainingLength > 0; i++) {
-        const chunk = doc.chunks[i]
-        if (chunk.length <= remainingLength) {
-          context += `\n\nContinued from ${doc.path}:\n${chunk}`
-          remainingLength -= chunk.length
-        } else {
-          break
-        }
-      }
-    })
+      if (remainingLength <= 0) break
+    }
 
     return context.trim()
-  }, [searchResults, contextTabs])
+  }, [rankedChunks])
 
   // Debounced Search Function
   const debouncedSearch = useCallback(
@@ -635,6 +623,7 @@ Answer:`
                         fetchDocumentContent(result.metadata.path)
                       }
                     }}
+                    rankedChunks={rankedChunks}
                   />
                 )}
               </div>
