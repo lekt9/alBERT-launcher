@@ -38,7 +38,7 @@ export async function getRankedChunks({
   if (allChunks.length === 0) {
     return []
   }
-
+  return allChunks
   try {
     const rankings = await trpcClient.embeddings.rerank.query({
       query,
