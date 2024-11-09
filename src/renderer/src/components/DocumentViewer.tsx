@@ -9,6 +9,10 @@ import { cn } from '@/lib/utils';
 interface Document {
   path: string;
   content: string;
+  metadata?: {
+    type: 'file' | 'web';
+    lastModified: number;
+  };
 }
 
 interface DocumentViewerProps {
@@ -89,6 +93,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = React.memo(
               doc.path,
               index
             );
+            const isWebSource = doc.metadata?.type === 'web' || doc.path.startsWith('http');
             return (
               <motion.div
                 key={doc.path}
@@ -110,7 +115,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = React.memo(
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
-                        {doc.path.startsWith('http') ? (
+                        {isWebSource ? (
                           <Globe className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <FileText className="h-4 w-4 text-muted-foreground" />
@@ -118,7 +123,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = React.memo(
                         <h3 className="text-sm font-semibold">
                           {doc.path.split('/').pop()}
                           <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            {doc.path.startsWith('http') ? 'Web Source' : 'Document'}
+                            {isWebSource ? 'Web Source' : 'Document'}
                           </span>
                         </h3>
                       </div>

@@ -183,63 +183,7 @@ function App(): JSX.Element {
       setIsLoading(true)
       try {
         const fileResults = await trpcClient.search.all.query(searchQuery)
-        
-        // Collect all chunks from all results
-        const allChunksWithMetadata = fileResults.flatMap(result => {
-          const chunks = splitContent(result.text, 1000, 20)
-          return chunks.map(chunk => ({
-            chunk,
-            resultIndex: fileResults.indexOf(result),
-            originalResult: result
-          }))
-        })
-
-        // Get all chunks for reranking
-        const allChunks = allChunksWithMetadata.map(item => item.chunk)
-        
-        // Rerank all chunks against the query
-        const rerankedResults = await trpcClient.embeddings.rerank.query({
-          query: searchQuery,
-          documents: allChunks,
-          options: {
-            return_documents: true
-          }
-        })
-        
-        // Process results using the reranked scores
-        const processedResults = fileResults.map((result, resultIndex) => {
-          const resultChunks = allChunksWithMetadata.filter(item => item.resultIndex === resultIndex)
-          const chunkScores = resultChunks.map(item => ({
-            text: item.chunk,
-            score: rerankedResults.find(r => r.text === item.chunk)?.score || 0,
-            index: allChunksWithMetadata.indexOf(item)
-          }))
-
-          const scores = chunkScores.map(c => c.score)
-          const mean = scores.reduce((acc, val) => acc + val, 0) / scores.length
-          const stdDev = calculateStandardDeviation(scores)
-
-          const significantChunks = chunkScores
-            .filter(chunk => chunk.score > mean + stdDev)
-            .sort((a, b) => b.score - a.score)
-            .sort((a, b) => a.index - b.index)
-            .map(chunk => highlightMatches(chunk.text, searchQuery))
-            .join('\n\n---\n\n')
-
-          const isWebSource = result.metadata.path.startsWith('http') || result.metadata.path.startsWith('https')
-
-          return {
-            ...result,
-            text: significantChunks || highlightMatches(result.text, searchQuery),
-            dist: 1 - Math.max(...scores), // Convert score to distance
-            metadata: {
-              ...result.metadata,
-              sourceType: isWebSource ? 'web' : 'document'
-            }
-          }
-        })
-
-        setSearchResults(processedResults)
+        setSearchResults(fileResults)
         setShowResults(true)
         return true
       } catch (error) {
@@ -335,7 +279,7 @@ function App(): JSX.Element {
                   content,
                   isExpanded: false,
                   metadata: {
-                    type: 'file',
+                    type: filePath.startsWith('http') ? 'web' : 'file',
                     lastModified: Date.now()
                   }
                 }

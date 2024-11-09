@@ -8,8 +8,8 @@ async function initializeModel() {
     const { AutoModelForSequenceClassification, AutoTokenizer } = await import(
       '@xenova/transformers'
     )
-    const model_id = 'Xenova/ms-marco-MiniLM-L-6-v2'
-    
+    const model_id = 'jinaai/jina-reranker-v1-tiny-en'
+
     tokenizer = await AutoTokenizer.from_pretrained(model_id)
     model = await AutoModelForSequenceClassification.from_pretrained(model_id, {
       quantized: false
@@ -23,17 +23,22 @@ interface RankOptions {
   return_documents?: boolean
 }
 
+interface RankResult {
+  corpus_id: number
+  score: number
+  text?: string
+}
+
 async function rank(
   query: string,
-  documents: string[],
-  options: RankOptions = {}
-): Promise<Array<{ corpus_id: number; score: number; text?: string }>> {
+  documents: string[]
+): Promise<RankResult[]> {
   try {
     await initializeModel()
-    
+
     // Create array of queries, one for each document
     const queries = new Array(documents.length).fill(query)
-    
+
     // Tokenize the input pairs
     const inputs = await tokenizer(queries, {
       text_pair: documents,
@@ -43,17 +48,11 @@ async function rank(
 
     // Get scores from the model
     const { logits } = await model(inputs)
-    
-    // Convert logits to probabilities and format results
-    return logits.sigmoid()
-      .tolist()
-      .map(([score]: number[], i: number) => ({
-        corpus_id: i,
-        score,
-        ...(options.return_documents ? { text: documents[i] } : {})
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, options.top_k)
+
+    // Convert logits to probabilities using sigmoid
+    // sigmoid(x) = 1 / (1 + e^(-x))
+    const scores = logits.sigmoid().tolist()
+    return scores
   } catch (error) {
     console.error('Reranking error:', error)
     throw error
@@ -66,26 +65,9 @@ if (parentPort) {
   parentPort.on('message', async (message) => {
     if (message.type === 'rerank') {
       try {
-        let query: string = ''
-        let documents: string[] = []
-        let options: RankOptions = {}
+        const { query, documents } = JSON.parse(message.text)
 
-        if (typeof message.text === 'string') {
-          try {
-            const parsed = JSON.parse(message.text)
-            if (Array.isArray(parsed) && parsed.length >= 2) {
-              query = parsed[0]
-              documents = Array.isArray(parsed[1]) ? parsed[1] : [parsed[1]]
-              options = parsed[2] || {}
-            }
-          } catch {
-            // Not JSON, use original string
-            query = message.text
-            documents = [message.text]
-          }
-        }
-
-        const reranked = await rank(query, documents, options)
+        const reranked = await rank(query, documents)
         parentPort?.postMessage({ type: 'result', reranked })
       } catch (error) {
         parentPort?.postMessage({

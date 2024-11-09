@@ -14,6 +14,7 @@ interface SearchResult {
   dist: number;
   metadata: {
     path: string;
+    title?: string;
     created_at: number;
     modified_at: number;
     filetype: string;
@@ -70,56 +71,68 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
         <ScrollArea className="transition-all duration-200 h-[500px]" >
           {searchResults
             .filter((result) => result.metadata.filetype !== 'ai_response')
-            .map((result, index) => (
-              <motion.div
-                key={index}
-                variants={cardVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                layoutId={`card-${result.metadata.path}`}
-                className={cn(
-                  'card-item m-2 cursor-pointer',
-                  index === selectedIndex ? 'z-10' : 'z-0'
-                )}
-              >
-                <Card
+            .map((result, index) => {
+              const isWebSource = result.metadata.sourceType === 'web' || result.metadata.path.startsWith('http');
+              const displayName = isWebSource 
+                ? (result.metadata.title || result.metadata.path.split('/').pop())
+                : result.metadata.path.split('/').pop();
+              
+              return (
+                <motion.div
+                  key={index}
+                  variants={cardVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  layoutId={`card-${result.metadata.path}`}
                   className={cn(
-                    'hover:bg-accent/50 transition-all duration-200',
-                    index === selectedIndex ? 'bg-accent border-primary' : ''
+                    'card-item m-2 cursor-pointer',
+                    index === selectedIndex ? 'z-10' : 'z-0'
                   )}
-                  onClick={() => handleResultClick(result)}
                 >
-                  <CardContent className="p-3 flex items-start space-x-3">
-                    <div className="flex gap-2">
-                      <div className="bg-muted rounded-full p-2 mt-1">
-                        {result.metadata.sourceType === 'web' ? (
-                          <Globe className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <FileText className="h-4 w-4 text-muted-foreground" />
+                  <Card
+                    className={cn(
+                      'hover:bg-accent/50 transition-all duration-200',
+                      index === selectedIndex ? 'bg-accent border-primary' : ''
+                    )}
+                    onClick={() => handleResultClick(result)}
+                  >
+                    <CardContent className="p-3 flex items-start space-x-3">
+                      <div className="flex gap-2">
+                        <div className="bg-muted rounded-full p-2 mt-1">
+                          {isWebSource ? (
+                            <Globe className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-semibold flex items-center gap-2">
+                          {displayName}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {isWebSource ? 'Web Source' : 'Document'}
+                          </span>
+                        </h3>
+                        {isWebSource && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {result.metadata.path}
+                          </div>
                         )}
+                        <div className="text-xs text-muted-foreground mt-1 prose prose-sm max-w-none">
+                          <ReactMarkdown>{result.text}</ReactMarkdown>
+                        </div>
+                        <div className="flex items-center mt-2 space-x-2">
+                          <span className="text-xs text-muted-foreground">
+                            Modified: {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-sm font-semibold flex items-center gap-2">
-                        {result.metadata.path.split('/').pop()}
-                        <span className="text-xs font-normal text-muted-foreground">
-                          {result.metadata.sourceType === 'web' ? 'Web Source' : 'Document'}
-                        </span>
-                      </h3>
-                      <div className="text-xs text-muted-foreground mt-1 prose prose-sm max-w-none">
-                        <ReactMarkdown>{result.text}</ReactMarkdown>
-                      </div>
-                      <div className="flex items-center mt-2 space-x-2">
-                        <span className="text-xs text-muted-foreground">
-                          Modified: {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
         </ScrollArea>
         <div className="flex items-center mt-2 text-xs text-muted-foreground">
           <span>

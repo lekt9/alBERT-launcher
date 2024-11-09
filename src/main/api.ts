@@ -76,16 +76,15 @@ export const getRouter = (window: BrowserWindow) => {
           }
 
           // Use reranking instead of embeddings
-          const rerankedResults = await rerank(
+          const rankings = await rerank(
             searchTerm,
-            combinedResults.map((r) => r.text),
-            { return_documents: false }
+            combinedResults.map((r) => r.text)
           )
 
           // Combine the reranking scores with the original results
           const rankedResults = combinedResults.map((result, index) => ({
             ...result,
-            dist: rerankedResults[index].score
+            dist: rankings[index]
           }))
 
           return rankedResults.sort((a, b) => b.dist - a.dist)
@@ -210,6 +209,7 @@ async function searchWeb(searchTerm: string) {
               text: content,
               metadata: {
                 path: result.url,
+                title: result.title,
                 created_at: Date.now() / 1000,
                 modified_at: Date.now() / 1000,
                 filetype: 'web',

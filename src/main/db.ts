@@ -2,7 +2,6 @@ import path from 'path'
 import fs from 'fs/promises'
 import { sha256 } from 'hash-wasm'
 import { embed } from './embeddings'
-import * as workers from './worker-management'
 import { logger } from './utils/logger'
 import type { EmbeddedClient } from 'weaviate-ts-embedded'
 import { readContent } from './utils/reader'
@@ -23,7 +22,7 @@ interface FileIndex {
 }
 
 const schema = {
-  class: 'Document',
+  class: 'File',
   properties: [
     { name: 'path', dataType: ['string'] },
     { name: 'content', dataType: ['text'] },
@@ -125,7 +124,7 @@ class SearchDB {
 
       await this.client.data
         .creator()
-        .withClassName('Document')
+        .withClassName('File')
         .withProperties({
           path: filePath,
           content: content,
@@ -244,16 +243,16 @@ class SearchDB {
       const vector = await embed(searchTerm)
       const result = await this.client.graphql
         .get()
-        .withClassName('Document')
+        .withClassName('File')
         .withHybrid({
           query: searchTerm,
-          vector
+          vector,
         })
-        .withLimit(10)
+        .withLimit(4)
         .withFields('content path lastModified extension')
         .do()
 
-      return result.data.Get.Document.map((hit: WeaviateDocument) => ({
+      return result.data.Get.File.map((hit: WeaviateDocument) => ({
         text: hit.content,
         metadata: {
           path: hit.path,
@@ -276,7 +275,7 @@ class SearchDB {
     try {
       await this.client.batch
         .objectsBatchDeleter()
-        .withClassName('Document')
+        .withClassName('File')
         .withWhere({
           operator: 'Equal',
           path: ['path'],
@@ -299,7 +298,7 @@ class SearchDB {
 
       await this.client.data
         .creator()
-        .withClassName('Document')
+        .withClassName('File')
         .withProperties({
           path: url,
           content: content,

@@ -113,7 +113,11 @@ const rerankStrings = (
   return new Promise((resolve, reject) => {
     reranker?.postMessage({
       type: 'rerank',
-      text: JSON.stringify([query, documents, options])
+      text: JSON.stringify({
+        query,
+        documents,
+        options
+      })
     })
 
     const messageHandler = (message: any) => {
