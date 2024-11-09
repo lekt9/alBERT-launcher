@@ -38,29 +38,28 @@ export async function getRankedChunks({
     return []
   }
 
-//   try {
-//     const rankings = await trpcClient.embeddings.rerank.query({
-//       query,
-//       documents: allChunks.map(chunk => chunk.text)
-//     })
+  try {
+    const rankings = await trpcClient.embeddings.rerank.query({
+      query,
+      documents: allChunks.map(chunk => chunk.text)
+    })
 
-//     // Combine rankings with chunk metadata
-//     const rankedChunks = rankings.map((score, index) => ({
-//       ...allChunks[index],
-//       score
-//     }))
+    // Combine rankings with chunk metadata
+    const rankedChunks = rankings.map((score, index) => ({
+      ...allChunks[index],
+      score
+    }))
 
-//     // Sort by score and filter low-relevance chunks
-//     return rankedChunks
-//       .sort((a, b) => b.score - a.score)
-//       .filter(chunk => chunk.score > minScore)
+    // Sort by score and filter low-relevance chunks
+    return rankedChunks
+      .sort((a, b) => b.score - a.score)
+      .filter(chunk => chunk.score > minScore)
 
-//   } catch (error) {
-    // console.error('Error reranking chunks:', error)
-    // Fallback: return chunks in original order with default scoring
+  } catch (error) {
+    console.error('Error reranking chunks:', error)
     return allChunks.map((chunk, index) => ({
       ...chunk,
       score: 1 - (index / allChunks.length)
     }))
-  
+  }
 } 

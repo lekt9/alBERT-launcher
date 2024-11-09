@@ -74,6 +74,11 @@ const handlePathClick = async (path: string, e: React.MouseEvent) => {
   }
 };
 
+const truncateText = (text: string, maxLength: number = 150) => {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + '...';
+};
+
 const SearchResults: React.FC<SearchResultsProps> = React.memo(
   ({ searchResults, selectedIndex, handleResultClick, rankedChunks }) => {
     // Group chunks by path and sort within groups by their original position
@@ -129,8 +134,11 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
 
             const isWebSource = result.metadata.sourceType === 'web' || result.metadata.path.startsWith('http')
             const displayName = isWebSource 
-              ? (result.metadata.title || result.metadata.path.split('/').pop())
-              : result.metadata.path.split('/').pop()
+              ? truncateText(result.metadata.title || result.metadata.path.split('/').pop() || '', 50)
+              : truncateText(result.metadata.path.split('/').pop() || '', 50)
+            
+            // Truncate the combinedText before rendering
+            const truncatedContent = truncateText(chunk.combinedText, 500)
             
             return (
               <motion.div
@@ -167,6 +175,7 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                         <span 
                           onClick={(e) => handlePathClick(result.metadata.path, e)}
                           className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1"
+                          title={result.metadata.path}
                         >
                           {displayName}
                           {isWebSource ? (
@@ -186,12 +195,13 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                         <div 
                           className="text-xs text-muted-foreground mt-1 hover:text-primary cursor-pointer transition-colors"
                           onClick={(e) => handlePathClick(result.metadata.path, e)}
+                          title={result.metadata.path}
                         >
-                          {result.metadata.path}
+                          {truncateText(result.metadata.path, 100)}
                         </div>
                       )}
                       <div className="text-xs text-muted-foreground mt-1 prose prose-sm max-w-none">
-                        <ReactMarkdown>{chunk.combinedText}</ReactMarkdown>
+                        <ReactMarkdown>{truncatedContent}</ReactMarkdown>
                       </div>
                       <div className="flex items-center mt-2 space-x-2">
                         <span className="text-xs text-muted-foreground">
