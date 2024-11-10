@@ -29,8 +29,9 @@ interface SearchResult {
 interface SearchResultsProps {
   searchResults: SearchResult[]
   selectedIndex: number
-  handleResultClick: (result: SearchResult) => void
   rankedChunks: RankedChunk[]
+  onDragStart: (e: React.DragEvent<HTMLDivElement>, result: SearchResult) => void
+  onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
 }
 
 const cardVariants = {
@@ -79,7 +80,7 @@ const truncateText = (text: string, maxLength: number = 150) => {
 }
 
 const SearchResults: React.FC<SearchResultsProps> = React.memo(
-  ({ searchResults, selectedIndex, handleResultClick, rankedChunks }) => {
+  ({ searchResults, selectedIndex, rankedChunks, onDragStart, onDragEnd }) => {
     // Group chunks by path and sort within groups by their original position
     const groupedChunks = useMemo(() => {
       const chunksByPath = new Map<string, RankedChunk[]>()
@@ -122,35 +123,32 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
       return combinedChunks.sort((a, b) => b.score - a.score)
     }, [rankedChunks, searchResults])
 
+    const handleResultClick = async (result: SearchResult) => {
+      try {
+        await trpcClient.document.open.mutate(result.metadata.path)
+      } catch (error) {
+        console.error('Failed to open document:', error)
+      }
+    }
+
     return (
-      <div
-        className={cn(
-          'flex-1 overflow-hidden',
-          // Add conditional class to remove padding/margin when no results
-          searchResults.length === 0 ? 'h-0' : ''
-        )}
-      >
-        <ScrollArea
-          className={cn(
-            'h-full',
-            // Remove padding when no results
-            searchResults.length === 0 ? 'p-0' : ''
-          )}
-        >
+      <div className={cn(
+        'flex-1 overflow-hidden',
+        searchResults.length === 0 ? 'h-0' : ''
+      )}>
+        <ScrollArea className={cn(
+          'h-full',
+          searchResults.length === 0 ? 'p-0' : ''
+        )}>
           {groupedChunks.map((chunk, index) => {
             const result = searchResults.find((r) => r.metadata.path === chunk.path)
             if (!result) return null
 
-            const isWebSource =
-              result.metadata.sourceType === 'web' || result.metadata.path.startsWith('http')
+            const isWebSource = result.metadata.sourceType === 'web' || result.metadata.path.startsWith('http')
             const displayName = isWebSource
-              ? truncateText(
-                  result.metadata.title || result.metadata.path.split('/').pop() || '',
-                  50
-                )
+              ? truncateText(result.metadata.title || result.metadata.path.split('/').pop() || '', 50)
               : truncateText(result.metadata.path.split('/').pop() || '', 50)
 
-            // Truncate the combinedText before rendering
             const truncatedContent = truncateText(chunk.combinedText, 500)
 
             return (
@@ -162,9 +160,19 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                 exit="exit"
                 layoutId={`card-${chunk.path}-${index}`}
                 className={cn(
-                  'card-item m-2 cursor-pointer',
+                  'card-item m-2',
+                  'cursor-move',
                   index === selectedIndex ? 'z-10' : 'z-0'
                 )}
+                draggable="true"
+                onDragStart={(e) => {
+                  e.stopPropagation()
+                  onDragStart(e, result)
+                }}
+                onDragEnd={(e) => {
+                  e.stopPropagation()
+                  onDragEnd(e)
+                }}
               >
                 <Card
                   className={cn(
@@ -230,8 +238,9 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
           })}
         </ScrollArea>
         {searchResults.length > 0 && (
-          <div className="flex items-center mt-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between mt-2 px-4 text-xs text-muted-foreground">
             <span>{selectedIndex === -1 ? 'Press → to pin to context' : 'Press ↑ to select'}</span>
+            <span>Drag items to create sticky notes</span>
           </div>
         )}
       </div>

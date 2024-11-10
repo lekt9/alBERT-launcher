@@ -185,7 +185,86 @@ export const getRouter = (window: BrowserWindow) => {
           log.error('Failed to open alBERT folder:', error)
         })
       })
-    })
+    }),
+
+    sources: router({
+      fetch: t.procedure
+        .input(z.array(z.string())) // Array of paths
+        .query(async ({ input: paths }) => {
+          try {
+            const sources = await Promise.all(
+              paths.map(async (path) => {
+                try {
+                  const content = await readContent(path)
+                  return {
+                    path,
+                    content,
+                    error: null
+                  }
+                } catch (error) {
+                  return {
+                    path,
+                    content: null,
+                    error: String(error)
+                  }
+                }
+              })
+            )
+            return sources.filter(source => source.content !== null)
+          } catch (error) {
+            log.error('Error fetching sources:', error)
+            throw error
+          }
+        })
+    }),
+
+    content: router({
+      fetch: t.procedure
+        .input(z.string()) // Single path
+        .query(async ({ input: path }) => {
+          try {
+            const content = await readContent(path)
+            return {
+              path,
+              content,
+              error: null
+            }
+          } catch (error) {
+            log.error('Error fetching content:', error)
+            return {
+              path,
+              content: null,
+              error: String(error)
+            }
+          }
+        }),
+      
+      rerank: t.procedure
+        .input(z.object({
+          query: z.string(),
+          documents: z.array(z.object({
+            text: z.string(),
+            metadata: z.any()
+          }))
+        }))
+        .query(async ({ input }) => {
+          try {
+            const { query, documents } = input
+            const rankings = await rerank(
+              query,
+              documents.map(d => d.text)
+            )
+            
+            return documents.map((doc, i) => ({
+              ...doc,
+              dist: rankings[i]
+            }))
+          } catch (error) {
+            log.error('Error reranking:', error)
+            throw error
+          }
+        })
+    }),
   })
 }
 

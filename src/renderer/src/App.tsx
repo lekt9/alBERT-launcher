@@ -7,7 +7,7 @@ import React, {
   useRef,
   useReducer
 } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { getContextSimilarityScores, trpcClient } from './util/trpc-client'
 import { cn } from '@/lib/utils'
 import SearchBar from '@/components/SearchBar'
@@ -23,6 +23,11 @@ import { getRankedChunks, RankedChunk } from '@/lib/context-utils'
 const ResponsePanel = React.lazy(() => import('@/components/ResponsePanel'))
 import SearchBadges, { SearchStep } from '@/components/SearchBadges'
 import { v4 as uuidv4 } from 'uuid'
+import { DragDropContext, Draggable, Droppable } from 'react-beautiful-dnd'
+import { AnimatePresence, motion } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+import { Globe, FileText, X } from 'lucide-react'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface SearchResult {
   text: string
@@ -115,6 +120,18 @@ function searchReducer(
     default:
       return state
   }
+}
+
+// Add this utility function near the top of the file
+const truncateText = (text: string, maxLength: number = 150): string => {
+  if (!text) return ''
+  if (text.length <= maxLength) return text
+  
+  // Find the last space before maxLength
+  const lastSpace = text.lastIndexOf(' ', maxLength)
+  if (lastSpace === -1) return text.slice(0, maxLength) + '...'
+  
+  return text.slice(0, lastSpace) + '...'
 }
 
 // First, move combinedSearchContext before the functions that use it
@@ -230,6 +247,10 @@ function App(): JSX.Element {
     }
   }, [query, searchResults])
 
+  // Add these new states in the App component
+  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+
   // Update combinedSearchContext to be synchronous
   const combinedSearchContext = useMemo(() => {
     const MAX_CONTEXT_LENGTH = 50000
@@ -241,6 +262,11 @@ function App(): JSX.Element {
         content: result.text,
         path: result.metadata.path,
         type: result.metadata.sourceType === 'web' ? 'web' : 'document'
+      })),
+      ...stickyNotes.map((note) => ({
+        content: note.text,
+        path: note.metadata.path,
+        type: 'pinned'
       }))
     ]
 
@@ -278,7 +304,7 @@ function App(): JSX.Element {
       console.error('Error building context:', error)
       return ''
     }
-  }, [query, searchResults])
+  }, [query, searchResults, stickyNotes])
 
   // Add a separate effect to update similarity scores
   const [documentScores, setDocumentScores] = useState<Map<string, number>>(new Map())
@@ -559,18 +585,40 @@ Response (must be valid JSON):`
     }
   }
 
-  // Update askAIQuestion to use the suggestions
+  // Add this function near other utility functions
+  const fetchSources = async (results: SearchResult[]): Promise<Source[]> => {
+    try {
+      // Get unique paths from search results
+      const paths = [...new Set(results.map(r => r.metadata.path))]
+      
+      // Fetch source contents
+      const sources = await trpcClient.sources.fetch.query(paths)
+      
+      return sources.map(source => ({
+        path: source.path,
+        preview: truncateText(source.content, 200),
+        citations: [],
+        description: source.content
+      }))
+    } catch (error) {
+      console.error('Error fetching sources:', error)
+      return []
+    }
+  }
+
+  // Update the askAIQuestion function to fetch sources first
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
       setSearchSteps([])
       let allResults: SearchResult[] = []
       const subQueryAnswers: { query: string; answer: string }[] = []
       let currentContext = ''
+      let allSources: Source[] = []
 
       try {
         let keepSearching = true
         let searchAttempts = 0
-        const MAX_SEARCH_ATTEMPTS = 3 // Limit the number of search attempts
+        const MAX_SEARCH_ATTEMPTS = 3
 
         while (keepSearching && searchAttempts < MAX_SEARCH_ATTEMPTS) {
           searchAttempts++
@@ -633,8 +681,8 @@ Response (must be valid JSON):`
           ])
 
           try {
-            // Perform search for this query
-            const results = await trpcClient.search.full.query(subQuery)
+            // Use quick search for each subquery
+            const results = await trpcClient.search.quick.query(subQuery)
             console.log('Search results for subquery:', subQuery, results)
 
             if (!results || !Array.isArray(results) || results.length === 0) {
@@ -655,17 +703,47 @@ Response (must be valid JSON):`
 
             // Add new results to collection and update state
             const newResults = results.filter((r) => r && r.text) as SearchResult[]
-            allResults = [...allResults, ...newResults]
+            const filteredNewResults = filterOutStickyNotes(newResults)
+            
+            // Fetch full content for each result
+            const fullResults = await Promise.all(
+              filteredNewResults.map(async (result) => {
+                try {
+                  // Skip loading for results that already have full content
+                  if (result.metadata.sourceType === 'web' && result.text.length > 500) {
+                    return result
+                  }
+
+                  const response = await trpcClient.content.fetch.query(result.metadata.path)
+                  if (response.content) {
+                    return {
+                      ...result,
+                      text: response.content
+                    }
+                  }
+                  return result
+                } catch (error) {
+                  console.error('Error loading full content:', error)
+                  return result
+                }
+              })
+            )
+
+            allResults = [...allResults, ...fullResults]
+
+            // Fetch sources for new results
+            const newSources = await fetchSources(fullResults)
+            allSources = [...allSources, ...newSources]
 
             // Update the searchResults state with accumulated results
             setSearchResults((prev) => {
-              const combined = [...prev, ...newResults]
+              const combined = [...prev, ...fullResults]
               // Remove duplicates based on path
               const unique = combined.filter(
                 (result, index, self) =>
                   index === self.findIndex((r) => r.metadata.path === result.metadata.path)
               )
-              return unique
+              return filterOutStickyNotes(unique)
             })
 
             // Update search step with results
@@ -762,20 +840,7 @@ Response (must be valid JSON):`
           }
         }
 
-        // After all searches are complete, update the cache with all accumulated results
-        setSearchCache((prev) => {
-          const newCache = [
-            {
-              query: originalQuery,
-              results: allResults,
-              timestamp: Date.now()
-            },
-            ...prev.filter((item) => item.query !== originalQuery)
-          ].slice(0, 5)
-          return newCache
-        })
-
-        // Proceed with final response using all gathered information
+        // After all searches are complete, proceed with chat using gathered sources
         const baseModel = provider(currentSettings.model)
         const contextMiddleware = createContextMiddleware({
           getContext: () => '' // Context will be provided in the prompt
@@ -786,13 +851,10 @@ Response (must be valid JSON):`
           middleware: contextMiddleware
         })
 
-        // Include sub-query answers in the context
-        const subQueryContext =
-          subQueryAnswers.length > 0
-            ? subQueryAnswers
-                .map((sqa) => `Question: ${sqa.query}\nAnswer: ${sqa.answer}`)
-                .join('\n\n')
-            : ''
+        // Create the subQueryContext from the accumulated answers
+        const subQueryContext = subQueryAnswers
+          .map((sqa) => `Sub-query: ${sqa.query}\nAnswer: ${sqa.answer}`)
+          .join('\n\n')
 
         const textStream = await generateChatResponse(model, originalQuery, subQueryContext)
 
@@ -800,7 +862,7 @@ Response (must be valid JSON):`
           question: originalQuery,
           answer: '',
           timestamp: Date.now(),
-          sources: []
+          sources: allSources // Use the collected sources
         }
 
         setConversations((prev) => [...prev, newConversation])
@@ -866,13 +928,13 @@ Response (must be valid JSON):`
         setIsLoading(false)
       }
     },
-    [currentSettings, combinedSearchContext, conversations]
+    [currentSettings, combinedSearchContext, conversations, stickyNotes]
   )
 
   // Add state machine
   const [searchState, dispatch] = useReducer(searchReducer, { status: 'idle' })
 
-  // Update debouncedSearch to wait for full search before chat
+  // Update debouncedSearch to only use quick search
   const debouncedSearch = useCallback(
     async (searchQuery: string, shouldChat = false) => {
       if (!searchQuery.trim()) {
@@ -897,77 +959,55 @@ Response (must be valid JSON):`
         })
 
         if (shouldChat) {
-          // Even with cached results, perform a fresh full search before chat
-          try {
-            const fullResults = await trpcClient.search.full.query(searchQuery)
-            if (fullResults.length > 0) {
-              setSearchResults(fullResults)
-              dispatch({
-                type: 'START_CHAT',
-                payload: { query: searchQuery, results: fullResults }
-              })
-              await askAIQuestion(searchQuery)
-              dispatch({ type: 'CHAT_COMPLETE' })
-            }
-          } catch (error) {
-            console.error('Full search failed:', error)
-            dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
-          }
+          dispatch({
+            type: 'START_CHAT',
+            payload: { query: searchQuery, results: cachedResults }
+          })
+          await askAIQuestion(searchQuery)
+          dispatch({ type: 'CHAT_COMPLETE' })
         }
         setIsLoading(false)
         return true
       }
 
       try {
-        if (shouldChat) {
-          // For chat, first do quick search to show results immediately
-          const quickResults = await trpcClient.search.quick.query(searchQuery)
-          if (quickResults.length > 0) {
-            setShowResults(true)
-            setSearchResults(quickResults)
-            dispatch({
-              type: 'SEARCH_SUCCESS',
-              payload: { query: searchQuery, results: quickResults }
-            })
-          }
-
-          // Then perform full search before starting chat
-          const fullResults = await trpcClient.search.full.query(searchQuery)
-          if (fullResults.length === 0) {
-            setShowResults(false)
-            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
-          } else {
-            setSearchResults(fullResults)
-            setSearchCache((prev) => {
-              const newCache = [
-                { query: searchQuery, results: fullResults, timestamp: Date.now() },
-                ...prev.filter((item) => item.query !== searchQuery)
-              ].slice(0, 5)
-              return newCache
-            })
-
-            dispatch({
-              type: 'START_CHAT',
-              payload: { query: searchQuery, results: fullResults }
-            })
-            await askAIQuestion(searchQuery)
-            dispatch({ type: 'CHAT_COMPLETE' })
-          }
-        } else {
-          // For regular search, just use quick search
-          const quickResults = await trpcClient.search.quick.query(searchQuery)
-          if (quickResults.length === 0) {
-            setShowResults(false)
-            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
-          } else {
-            setShowResults(true)
-            setSearchResults(quickResults)
-            dispatch({
-              type: 'SEARCH_SUCCESS',
-              payload: { query: searchQuery, results: quickResults }
-            })
-          }
+        // Only use quick search
+        const quickResults = await trpcClient.search.quick.query(searchQuery)
+        
+        if (quickResults.length === 0) {
+          setShowResults(false)
+          dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
+          setIsLoading(false)
+          return false
         }
+
+        // Filter and show quick results immediately
+        const filteredQuickResults = filterOutStickyNotes(quickResults)
+        setSearchResults(filteredQuickResults)
+        setShowResults(filteredQuickResults.length > 0)
+        dispatch({
+          type: 'SEARCH_SUCCESS',
+          payload: { query: searchQuery, results: filteredQuickResults }
+        })
+
+        // Cache the quick results
+        setSearchCache((prev) => {
+          const newCache = [
+            { query: searchQuery, results: filteredQuickResults, timestamp: Date.now() },
+            ...prev.filter((item) => item.query !== searchQuery)
+          ].slice(0, 5)
+          return newCache
+        })
+
+        if (shouldChat) {
+          dispatch({
+            type: 'START_CHAT',
+            payload: { query: searchQuery, results: filteredQuickResults }
+          })
+          await askAIQuestion(searchQuery)
+          dispatch({ type: 'CHAT_COMPLETE' })
+        }
+
         setIsLoading(false)
         return true
       } catch (error) {
@@ -979,7 +1019,7 @@ Response (must be valid JSON):`
         return false
       }
     },
-    [getCachedResults, askAIQuestion]
+    [getCachedResults, askAIQuestion, stickyNotes]
   )
 
   // Update handleInputChange to always use quick search
@@ -1063,21 +1103,14 @@ Response (must be valid JSON):`
         } else {
           trpcClient.window.hide.mutate()
         }
-      } else if (e.key === 'ArrowLeft') {
-
-          // Toggle between settings and response panels
-          setActivePanel((prev) => {
-            if (prev === 'settings') return 'response'
-            if (prev === 'response') return 'settings'
-            return 'settings'
-          })
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault()
-          // First check if settings panel is open
-        if (activePanel === 'settings') {
-          setActivePanel('response')
-          return
-        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        // Toggle between settings and response panels
+        setActivePanel((prev) => {
+          if (prev === 'settings') return 'response'
+          if (prev === 'response') return 'settings'
+          return 'settings'
+        })
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (!query.trim()) return
@@ -1228,12 +1261,224 @@ Response (must be valid JSON):`
     }
   }, [searchState])
 
+  // Add new interfaces
+  interface StickyNote extends SearchResult {
+    id: string
+    position: { x: number; y: number }
+    isDragging?: boolean
+  }
+
+  // Add this new function to handle creating sticky notes
+  const createStickyNote = (result: SearchResult, position: { x: number; y: number }): void => {
+    const newNote: StickyNote = {
+      ...result,
+      id: uuidv4(),
+      position,
+      isDragging: false
+    }
+    setStickyNotes((prev) => [...prev, newNote])
+    
+    // Remove the item from searchResults
+    setSearchResults((prev) => 
+      prev.filter((item) => item.metadata.path !== result.metadata.path)
+    )
+  }
+
+  // Add drag handling functions
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, result: SearchResult) => {
+    e.dataTransfer.setData('application/json', JSON.stringify(result))
+    setIsDragging(true)
+  }
+
+  const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    setIsDragging(false)
+    
+    try {
+      const result = JSON.parse(e.dataTransfer.getData('application/json'))
+      const position = {
+        x: e.clientX,
+        y: e.clientY
+      }
+      createStickyNote(result, position)
+
+      // If searchResults is empty after removing the item, hide the results panel
+      if (searchResults.length === 1) { // Will become 0 after createStickyNote
+        setShowResults(false)
+      }
+    } catch (error) {
+      console.error('Error creating sticky note:', error)
+    }
+  }
+
+  // Add this component within App.tsx
+  const StickyNoteComponent: React.FC<{
+    note: StickyNote
+    onClose: (id: string) => void
+    onDrag: (id: string, position: { x: number; y: number }) => void
+  }> = ({ note, onClose, onDrag }) => {
+    const noteRef = useRef<HTMLDivElement>(null)
+
+    return (
+      <motion.div
+        ref={noteRef}
+        drag
+        dragMomentum={false}
+        style={{
+          position: 'fixed',
+          left: note.position.x,
+          top: note.position.y,
+          zIndex: 50
+        }}
+        onDragEnd={(_, info) => {
+          const newPos = {
+            x: note.position.x + info.offset.x,
+            y: note.position.y + info.offset.y
+          }
+          onDrag(note.id, newPos)
+        }}
+        className="group"
+      >
+        <Card className="w-96 shadow-lg bg-background/95 backdrop-blur-sm border-muted">
+          <CardHeader className="p-3 pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                {note.metadata.sourceType === 'web' ? (
+                  <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <h3 className="text-sm font-medium leading-none truncate">
+                  {note.metadata.title || note.metadata.path.split('/').pop()}
+                </h3>
+              </div>
+              <button
+                onClick={() => onClose(note.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm hover:bg-accent hover:text-accent-foreground p-1 -mt-1 -mr-1 ml-2 shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div 
+              className="text-xs text-muted-foreground mt-1.5 hover:text-primary cursor-pointer transition-colors truncate pl-6"
+              onClick={() => handlePathClick(note.metadata.path, new MouseEvent('click'))}
+              title={note.metadata.path}
+            >
+              {truncateText(note.metadata.path, 60)}
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 pt-0">
+            <ScrollArea className="h-[300px] w-full rounded-md pr-4">
+              <div className="text-sm text-foreground prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                <ReactMarkdown
+                  components={{
+                    p: ({ children }) => <p className="mb-4 leading-relaxed">{children}</p>,
+                    ul: ({ children }) => <ul className="my-4 list-disc pl-6 space-y-2">{children}</ul>,
+                    ol: ({ children }) => <ol className="my-4 list-decimal pl-6 space-y-2">{children}</ol>,
+                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                    h1: ({ children }) => (
+                      <h1 className="text-lg font-semibold mb-4 mt-6 first:mt-0">{children}</h1>
+                    ),
+                    h2: ({ children }) => (
+                      <h2 className="text-base font-semibold mb-3 mt-5 first:mt-0">{children}</h2>
+                    ),
+                    h3: ({ children }) => (
+                      <h3 className="text-sm font-medium mb-3 mt-4 first:mt-0">{children}</h3>
+                    ),
+                    code: ({ children }) => (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>
+                    ),
+                    pre: ({ children }) => (
+                      <pre className="bg-muted p-3 rounded-md overflow-x-auto my-4 text-sm font-mono">
+                        {children}
+                      </pre>
+                    ),
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-2 border-muted-foreground/30 pl-4 italic my-4">
+                        {children}
+                      </blockquote>
+                    ),
+                    a: ({ children, href }) => (
+                      <a 
+                        href={href}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          handlePathClick(href || '', new MouseEvent('click'))
+                        }}
+                        className="text-primary hover:underline cursor-pointer"
+                      >
+                        {children}
+                      </a>
+                    ),
+                    table: ({ children }) => (
+                      <div className="my-4 w-full overflow-x-auto">
+                        <table className="w-full border-collapse">{children}</table>
+                      </div>
+                    ),
+                    th: ({ children }) => (
+                      <th className="border border-muted-foreground/20 px-4 py-2 text-left font-medium bg-muted">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="border border-muted-foreground/20 px-4 py-2">
+                        {children}
+                      </td>
+                    ),
+                    hr: () => <hr className="my-6 border-muted-foreground/20" />,
+                    img: ({ src, alt }) => (
+                      <img 
+                        src={src} 
+                        alt={alt} 
+                        className="rounded-md max-w-full h-auto my-4"
+                        loading="lazy"
+                      />
+                    ),
+                  }}
+                >
+                  {note.text}
+                </ReactMarkdown>
+              </div>
+            </ScrollArea>
+          </CardContent>
+          <CardFooter className="p-3 pt-2 border-t border-border/50">
+            <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
+              <span>
+                Modified: {new Date(note.metadata.modified_at * 1000).toLocaleDateString()}
+              </span>
+              <span className="text-xs opacity-50 select-none">Drag to move</span>
+            </div>
+          </CardFooter>
+        </Card>
+      </motion.div>
+    )
+  }
+
+  // Modify the SearchResults component props to include drag handlers
+  interface SearchResultsProps {
+    searchResults: SearchResult[]
+    selectedIndex: number
+    rankedChunks: RankedChunk[]
+    onDragStart: (e: React.DragEvent<HTMLDivElement>, result: SearchResult) => void
+    onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
+  }
+
+  // Update the setSearchResults calls to filter out sticky notes
+  const filterOutStickyNotes = (results: SearchResult[]): SearchResult[] => {
+    const stickyNotePaths = new Set(stickyNotes.map(note => note.metadata.path))
+    return results.filter(result => !stickyNotePaths.has(result.metadata.path))
+  }
+
+  // Update the return statement in App component to include the drag area and sticky notes
   return (
     <div
       className="h-screen w-screen flex items-center justify-center bg-background/0 backdrop-blur-sm"
-      onClick={() => {
-        // Logic to handle background click
-      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
     >
       <div className="flex flex-col">
         <div className="flex gap-4 transition-all duration-200">
@@ -1300,6 +1545,8 @@ Response (must be valid JSON):`
                     searchResults={searchResults}
                     selectedIndex={selectedIndex}
                     rankedChunks={rankedChunks}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
                   />
                 )}
               </div>
@@ -1329,6 +1576,24 @@ Response (must be valid JSON):`
 
         <KeyboardShortcuts showDocument={activePanel === 'document'} activePanel={activePanel} />
       </div>
+
+      {/* Sticky Notes Layer */}
+      <AnimatePresence>
+        {stickyNotes.map((note) => (
+          <StickyNoteComponent
+            key={note.id}
+            note={note}
+            onClose={(id) => {
+              setStickyNotes((prev) => prev.filter((n) => n.id !== id))
+            }}
+            onDrag={(id, position) => {
+              setStickyNotes((prev) =>
+                prev.map((n) => (n.id === id ? { ...n, position } : n))
+              )
+            }}
+          />
+        ))}
+      </AnimatePresence>
     </div>
   )
 }
