@@ -111,7 +111,26 @@ export const getRouter = (window: BrowserWindow) => {
             quickSearchWeb(searchTerm)
           ])
 
-          const combinedResults = [...fileResults, ...webResults].filter(
+          // For web results, fetch full content immediately
+          const webResultsWithContent = await Promise.all(
+            webResults.map(async (result) => {
+              if (result.metadata.sourceType === 'web') {
+                try {
+                  const content = await readContent(result.metadata.path)
+                  return {
+                    ...result,
+                    text: content || result.text // Fallback to description if content fetch fails
+                  }
+                } catch (error) {
+                  log.error(`Failed to fetch content for ${result.metadata.path}:`, error)
+                  return result // Keep original description if fetch fails
+                }
+              }
+              return result
+            })
+          )
+
+          const combinedResults = [...fileResults, ...webResultsWithContent].filter(
             (result) => result.text && result.text.trim().length > 0
           )
 
@@ -121,40 +140,6 @@ export const getRouter = (window: BrowserWindow) => {
           throw error
         }
       }),
-
-      full: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
-        log.info('tRPC Call: search.full')
-        try {
-          const [fileResults, webResults] = await Promise.all([
-            searchFiles(searchTerm),
-            searchWeb(searchTerm)
-          ])
-
-          const combinedResults = [...fileResults, ...webResults].filter(
-            (result) => result.text && result.text.trim().length > 0
-          )
-
-          if (combinedResults.length === 0) {
-            return []
-          }
-
-          // Use reranking
-          const rankings = await rerank(
-            searchTerm,
-            combinedResults.map((r) => r.text)
-          )
-
-          const rankedResults = combinedResults.map((result, index) => ({
-            ...result,
-            dist: rankings[index]
-          }))
-
-          return rankedResults.sort((a, b) => b.dist - a.dist)
-        } catch (error) {
-          log.error('Error performing full search:', error)
-          throw error
-        }
-      })
     }),
 
     window: router({
@@ -275,52 +260,6 @@ async function searchFiles(searchTerm: string) {
   return await searchDB.search(searchTerm)
 }
 
-async function searchWeb(searchTerm: string) {
-  try {
-    const searchResults = await braveSearch.webSearch(searchTerm, {
-      count: 5,
-      search_lang: 'en',
-      country: 'US',
-      text_decorations: false
-    })
-
-    if (!searchResults.web?.results) {
-      return []
-    }
-
-    const processedResults = await Promise.all(
-      searchResults.web.results.map(async (result) => {
-        try {
-          const content = await readContent(result.url)
-          return {
-            text: content,
-            metadata: {
-              path: result.url,
-              title: result.title,
-              created_at: Date.now() / 1000,
-              modified_at: Date.now() / 1000,
-              filetype: 'web',
-              languages: ['en'],
-              links: [result.url],
-              owner: null,
-              seen_at: Date.now() / 1000,
-              sourceType: 'web'
-            }
-          }
-        } catch (error) {
-          log.error(`Failed to extract content from ${result.url}:`, error)
-          return null
-        }
-      })
-    )
-
-    return processedResults.filter(Boolean)
-  } catch (error) {
-    log.error('Error performing web search:', error)
-    return []
-  }
-}
-
 async function quickSearchWeb(searchTerm: string) {
   try {
     const searchResults = await braveSearch.webSearch(searchTerm, {
@@ -334,7 +273,6 @@ async function quickSearchWeb(searchTerm: string) {
       return []
     }
 
-    // Use description instead of fetching full content
     return searchResults.web.results.map(result => ({
       text: result.description || result.title,
       metadata: {
@@ -347,7 +285,8 @@ async function quickSearchWeb(searchTerm: string) {
         links: [result.url],
         owner: null,
         seen_at: Date.now() / 1000,
-        sourceType: 'web'
+        sourceType: 'web',
+        description: result.description // Add description to metadata
       }
     }))
   } catch (error) {

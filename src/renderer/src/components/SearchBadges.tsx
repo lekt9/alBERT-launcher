@@ -21,6 +21,14 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
     }
   }, [steps])
 
+  // Filter out completed evaluation steps without answers after 2 seconds
+  const filteredSteps = steps.filter(step => {
+    if (step.query === 'Evaluating results...' && step.status === 'complete' && !step.answer) {
+      return false
+    }
+    return true
+  })
+
   return (
     <div 
       ref={scrollContainerRef}
@@ -32,7 +40,7 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
       }}
     >
       <div className="flex flex-wrap gap-2 w-full">
-        {steps.map((step) => (
+        {filteredSteps.map((step) => (
           <Badge
             key={step.id}
             variant={

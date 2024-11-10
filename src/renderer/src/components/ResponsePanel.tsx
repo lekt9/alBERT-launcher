@@ -17,13 +17,17 @@ interface ResponsePanelProps {
   addAIResponseToContext: () => void
   askAIQuestion: (question: string) => Promise<void>
   isLoading: boolean
+  onDragStart: (e: React.DragEvent<HTMLDivElement>, content: { text: string; metadata: any }) => void
+  onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
 }
 
 const ResponsePanel: React.FC<ResponsePanelProps> = ({ 
   conversations, 
   addAIResponseToContext, 
   askAIQuestion,
-  isLoading 
+  isLoading,
+  onDragStart,
+  onDragEnd
 }) => {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const lastMessageRef = useRef<HTMLDivElement>(null)
@@ -96,6 +100,30 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                 index === completedConversations.length - 1 && "mb-4"
               )}
               ref={index === completedConversations.length - 1 ? lastMessageRef : undefined}
+              draggable="true"
+              onDragStart={(e) => {
+                e.stopPropagation()
+                onDragStart(e, {
+                  text: conversation.answer,
+                  metadata: {
+                    path: `ai-response-${conversation.timestamp}`,
+                    title: conversation.question,
+                    created_at: conversation.timestamp / 1000,
+                    modified_at: conversation.timestamp / 1000,
+                    filetype: 'ai-response',
+                    languages: ['en'],
+                    links: conversation.sources?.map(s => s.path) || [],
+                    owner: null,
+                    seen_at: Date.now() / 1000,
+                    sourceType: 'ai-response',
+                    sources: conversation.sources
+                  }
+                })
+              }}
+              onDragEnd={(e) => {
+                e.stopPropagation()
+                onDragEnd(e)
+              }}
             >
               {/* Header Section */}
               <div className="flex items-center justify-between p-4 border-b bg-muted/30">
@@ -110,13 +138,18 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={addAIResponseToContext}
-                  className="p-2 hover:bg-accent rounded-full"
-                  title="Pin to context"
-                >
-                  <Pin className="h-4 w-4 text-muted-foreground" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                    Drag to create note
+                  </span>
+                  <button
+                    onClick={addAIResponseToContext}
+                    className="p-2 hover:bg-accent rounded-full"
+                    title="Pin to context"
+                  >
+                    <Pin className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                </div>
               </div>
 
               {/* Content Section */}
