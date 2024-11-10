@@ -2,7 +2,7 @@ import React from 'react'
 
 interface KeyboardShortcutsProps {
   showDocument: boolean
-  activePanel: 'none' | 'chat' | 'document' | 'settings'
+  activePanel: 'none' | 'response' | 'document' | 'settings'
 }
 
 export function KeyboardShortcuts({ showDocument, activePanel }: KeyboardShortcutsProps) {

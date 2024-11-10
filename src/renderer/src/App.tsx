@@ -12,7 +12,6 @@ import { getContextSimilarityScores, trpcClient } from './util/trpc-client'
 import { cn } from '@/lib/utils'
 import SearchBar from '@/components/SearchBar'
 import SearchResults from '@/components/SearchResults'
-import ContextTabs from '@/components/ContextTabs'
 const SettingsPanel = React.lazy(() => import('@/components/SettingsPanel'))
 import { KeyboardShortcuts } from '@/components/navigation/KeyboardShortcuts'
 import { generateText, streamText, experimental_wrapLanguageModel as wrapLanguageModel } from 'ai'
@@ -173,8 +172,6 @@ function App(): JSX.Element {
 
   const [conversations, setConversations] = useState<AIResponse[]>([])
 
-  const [contextTabs, setContextTabs] = useState<ContextTab[]>([])
-
   // Update the activePanel state to use the new type
   const [activePanel, setActivePanel] = useState<PanelState>('response')
 
@@ -209,11 +206,6 @@ function App(): JSX.Element {
   useEffect(() => {
     const updateRankedChunks = async (): Promise<void> => {
       const documents = [
-        ...contextTabs.map((tab) => ({
-          content: tab.content,
-          path: tab.path,
-          type: 'pinned' as const
-        })),
         ...searchResults.map((result) => ({
           content: result.text,
           path: result.metadata.path,
@@ -231,12 +223,12 @@ function App(): JSX.Element {
       setRankedChunks(chunks)
     }
 
-    if (query && (searchResults.length > 0 || contextTabs.length > 0)) {
+    if (query && (searchResults.length > 0)) {
       updateRankedChunks()
     } else {
       setRankedChunks([])
     }
-  }, [query, searchResults, contextTabs])
+  }, [query, searchResults])
 
   // Update combinedSearchContext to be synchronous
   const combinedSearchContext = useMemo(() => {
@@ -245,11 +237,6 @@ function App(): JSX.Element {
 
     // Get all documents for scoring
     const documents = [
-      ...contextTabs.map((tab) => ({
-        content: tab.content,
-        path: tab.path,
-        type: 'pinned' as const
-      })),
       ...searchResults.map((result) => ({
         content: result.text,
         path: result.metadata.path,
@@ -291,7 +278,7 @@ function App(): JSX.Element {
       console.error('Error building context:', error)
       return ''
     }
-  }, [query, searchResults, contextTabs])
+  }, [query, searchResults])
 
   // Add a separate effect to update similarity scores
   const [documentScores, setDocumentScores] = useState<Map<string, number>>(new Map())
@@ -299,11 +286,6 @@ function App(): JSX.Element {
   useEffect(() => {
     const updateSimilarityScores = async () => {
       const documents = [
-        ...contextTabs.map((tab) => ({
-          content: tab.content,
-          path: tab.path,
-          type: 'pinned' as const
-        })),
         ...searchResults.map((result) => ({
           content: result.text,
           path: result.metadata.path,
@@ -318,10 +300,7 @@ function App(): JSX.Element {
 
         const scoreMap = new Map<string, number>()
         similarityScores.forEach((doc) => {
-          const score =
-            doc.type === 'pinned'
-              ? doc.scores[0] * 1.2 // Apply 1.2x multiplier for pinned content
-              : doc.scores[0]
+          const score = doc.scores[0]
           scoreMap.set(doc.path, score)
         })
 
@@ -334,7 +313,7 @@ function App(): JSX.Element {
     if (query) {
       updateSimilarityScores()
     }
-  }, [query, searchResults, contextTabs])
+  }, [query, searchResults])
 
   // Then update generateChatResponse to use the synchronous context
   const generateChatResponse = useCallback(
@@ -1044,9 +1023,7 @@ Response (must be valid JSON):`
         let contentToCopy = text
 
         if (includeContext) {
-          if (contextTabs.length > 0) {
-            contentToCopy = `Query: ${query}\n\nContext:\n${combinedSearchContext}`
-          } else if (showResults && selectedIndex >= 0) {
+          if (showResults && selectedIndex >= 0) {
             const selectedResult = searchResults[selectedIndex]
             contentToCopy = `Selected content from ${selectedResult.metadata.path}:\n${selectedResult.text}`
           } else {
@@ -1064,47 +1041,7 @@ Response (must be valid JSON):`
         console.error('Failed to copy:', error)
       }
     },
-    [query, contextTabs, showResults, selectedIndex, searchResults]
-  )
-
-  // Fetch Document Content
-  const fetchDocumentContent = useCallback(
-    async (filePath: string) => {
-      if (!filePath) {
-        console.error('No file path provided')
-        return
-      }
-
-      try {
-        const content = await trpcClient.document.fetch.query(filePath)
-        if (content) {
-          // Update contextTabs
-          setContextTabs((prev) => {
-            const exists = prev.some((tab) => tab.path === filePath)
-            if (!exists) {
-              return [
-                ...prev,
-                {
-                  path: filePath,
-                  content,
-                  isExpanded: false,
-                  metadata: {
-                    type: filePath.startsWith('http') ? 'web' : 'file',
-                    lastModified: Date.now()
-                  }
-                }
-              ]
-            }
-            return prev
-          })
-
-          setShowResults(true)
-        }
-      } catch (error) {
-        console.error('Error fetching document:', error)
-      }
-    },
-    [query]
+    [query, showResults, selectedIndex, searchResults]
   )
 
   // Open Folder Function
@@ -1127,59 +1064,19 @@ Response (must be valid JSON):`
           trpcClient.window.hide.mutate()
         }
       } else if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        if (contextTabs.length > 0) {
-          // Unpin the most recently pinned document
-          setContextTabs((prev) => {
-            const newTabs = [...prev]
-            newTabs.pop()
-            return newTabs
-          })
-        } else {
+
           // Toggle between settings and response panels
           setActivePanel((prev) => {
             if (prev === 'settings') return 'response'
             if (prev === 'response') return 'settings'
             return 'settings'
           })
-        }
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        // First check if settings panel is open
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          // First check if settings panel is open
         if (activePanel === 'settings') {
           setActivePanel('response')
           return
-        }
-
-        // Only proceed with pinning if settings panel is not open
-        if (selectedIndex !== -1 && searchResults[selectedIndex]) {
-          // Pin the selected document to context
-          const result = searchResults[selectedIndex]
-          if (!contextTabs.some((tab) => tab.path === result.metadata.path)) {
-            fetchDocumentContent(result.metadata.path)
-          }
-        } else if (selectedIndex === -1 && conversations.length > 0) {
-          // Pin AI response to context
-          const aiResponseContent = `Q: ${conversations[conversations.length - 1].question}\n\nA: ${conversations[conversations.length - 1].answer}`
-          setContextTabs((prev) => {
-            const exists = prev.some((tab) => tab.content === aiResponseContent)
-            if (!exists) {
-              return [
-                ...prev,
-                {
-                  path: `AI Response (${new Date(conversations[conversations.length - 1].timestamp).toLocaleTimeString()})`,
-                  content: aiResponseContent,
-                  isExpanded: false,
-                  metadata: {
-                    type: 'ai_response',
-                    lastModified: conversations[conversations.length - 1].timestamp,
-                    matchScore: 1
-                  }
-                }
-              ]
-            }
-            return prev
-          })
         }
       } else if (e.key === 'Enter') {
         e.preventDefault()
@@ -1258,7 +1155,6 @@ Response (must be valid JSON):`
       query,
       searchState,
       activePanel,
-      contextTabs,
       selectedIndex,
       searchResults,
       conversations,
@@ -1403,11 +1299,6 @@ Response (must be valid JSON):`
                   <SearchResults
                     searchResults={searchResults}
                     selectedIndex={selectedIndex}
-                    handleResultClick={(result) => {
-                      if (!contextTabs.some((tab) => tab.path === result.metadata.path)) {
-                        fetchDocumentContent(result.metadata.path)
-                      }
-                    }}
                     rankedChunks={rankedChunks}
                   />
                 )}
@@ -1426,29 +1317,6 @@ Response (must be valid JSON):`
                   <ResponsePanel
                     conversations={conversations}
                     addAIResponseToContext={() => {
-                      if (conversations.length > 0) {
-                        const lastConversation = conversations[conversations.length - 1]
-                        const aiResponseContent = `Q: ${lastConversation.question}\n\nA: ${lastConversation.answer}`
-                        setContextTabs((prev) => {
-                          const exists = prev.some((tab) => tab.content === aiResponseContent)
-                          if (!exists) {
-                            return [
-                              ...prev,
-                              {
-                                path: `AI Response (${new Date(lastConversation.timestamp).toLocaleTimeString()})`,
-                                content: aiResponseContent,
-                                isExpanded: false,
-                                metadata: {
-                                  type: 'ai_response',
-                                  lastModified: lastConversation.timestamp,
-                                  matchScore: 1
-                                }
-                              }
-                            ]
-                          }
-                          return prev
-                        })
-                      }
                     }}
                     askAIQuestion={askAIQuestion}
                     isLoading={isLoading}
@@ -1457,9 +1325,6 @@ Response (must be valid JSON):`
               </Card>
             </Suspense>
           )}
-
-          {/* Context Tabs */}
-          <ContextTabs contextTabs={contextTabs} setContextTabs={setContextTabs} />
         </div>
 
         <KeyboardShortcuts showDocument={activePanel === 'document'} activePanel={activePanel} />
