@@ -29,6 +29,8 @@ import ReactMarkdown from 'react-markdown'
 import { Globe, FileText, X, Pencil, Save } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
+import { MDXEditor, headingsPlugin, listsPlugin, quotePlugin, markdownShortcutPlugin, linkPlugin, tablePlugin, thematicBreakPlugin, frontmatterPlugin, codeBlockPlugin } from '@mdxeditor/editor'
+import '@mdxeditor/editor/style.css'
 
 interface SearchResult {
   text: string
@@ -805,24 +807,15 @@ Response (must be valid JSON):`
               try {
                 const parsedAnswer = JSON.parse(evaluation.answer)
 
-                // Update search steps with the actual answer
+                // Update search steps with the actual answer and mark as complete
                 setSearchSteps((prev) =>
                   prev.map((step) => {
-                    if (step.id === searchStepId) {
-                      return {
-                        ...step,
-                        status: 'complete',
-                        results: results as SearchResult[]
-                      }
-                    }
                     if (step.id === evalStepId) {
                       return {
                         ...step,
                         status: 'complete',
                         query: 'Found relevant information',
-                        answer:
-                          parsedAnswer.answer.slice(0, 50) +
-                          (parsedAnswer.answer.length > 50 ? '...' : '')
+                        answer: parsedAnswer.answer.slice(0, 50) + (parsedAnswer.answer.length > 50 ? '...' : '')
                       }
                     }
                     return step
@@ -839,28 +832,54 @@ Response (must be valid JSON):`
                   .map((sqa) => `Q: ${sqa.query}\nA: ${sqa.answer}`)
                   .join('\n\n')
 
-                // If we have an answer and this isn't our first attempt,
-                // or if the answer seems comprehensive, stop searching
-                if (searchAttempts > 1 || parsedAnswer.answer.length > 200) {
+                // If we have a comprehensive answer, stop searching
+                if (parsedAnswer.answer.length > 200) {
                   keepSearching = false
-                  continue
                 }
+                // Break out of the current iteration
+                continue
               } catch (error) {
                 console.error('Error parsing evaluation answer:', error)
-                // If we can't parse the JSON but have an answer, consider it sufficient
+                // Mark evaluation step as failed
+                setSearchSteps((prev) =>
+                  prev.map((step) =>
+                    step.id === evalStepId
+                      ? {
+                          ...step,
+                          status: 'failed',
+                          answer: 'Failed to process answer'
+                        }
+                      : step
+                  )
+                )
                 keepSearching = false
                 continue
               }
-            } else if (evaluation.suggestions && evaluation.suggestions.length > 0) {
-              // Only continue searching if we haven't hit the maximum attempts
-              if (searchAttempts < MAX_SEARCH_ATTEMPTS) {
-                nextQueries.push(...evaluation.suggestions)
+            } else {
+              // Mark evaluation step as complete but without answer
+              setSearchSteps((prev) =>
+                prev.map((step) =>
+                  step.id === evalStepId
+                    ? {
+                        ...step,
+                        status: 'complete',
+                        query: 'Evaluating results...'
+                      }
+                    : step
+                )
+              )
+
+              if (evaluation.suggestions && evaluation.suggestions.length > 0) {
+                // Only continue searching if we haven't hit the maximum attempts
+                if (searchAttempts < MAX_SEARCH_ATTEMPTS) {
+                  nextQueries.push(...evaluation.suggestions)
+                } else {
+                  keepSearching = false
+                }
               } else {
+                // If we have no answer and no suggestions, stop searching
                 keepSearching = false
               }
-            } else {
-              // If we have no answer and no suggestions, stop searching
-              keepSearching = false
             }
           } catch (error) {
             console.error('Search error:', error)
@@ -1312,18 +1331,6 @@ Response (must be valid JSON):`
     onEdit: (id: string, newText: string) => void
   }> = ({ note, onClose, onDrag, onEdit }) => {
     const noteRef = useRef<HTMLDivElement>(null)
-    const [editText, setEditText] = useState(note.text)
-
-    // Auto-save when text changes
-    useEffect(() => {
-      const timeoutId = setTimeout(() => {
-        if (editText !== note.text) {
-          onEdit(note.id, editText)
-        }
-      }, 500) // Debounce auto-save by 500ms
-
-      return () => clearTimeout(timeoutId)
-    }, [editText, note.id, note.text, onEdit])
 
     return (
       <motion.div
@@ -1375,26 +1382,25 @@ Response (must be valid JSON):`
           </CardHeader>
           <CardContent className="p-3 pt-0">
             <ScrollArea className="h-[300px] w-full rounded-md pr-4">
-              <Textarea
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                className="min-h-[280px] font-mono text-sm resize-none bg-transparent border-0 focus-visible:ring-0 p-0"
-                placeholder="Start typing..."
-                onKeyDown={(e) => {
-                  if (e.key === 'Tab') {
-                    e.preventDefault()
-                    const start = e.currentTarget.selectionStart
-                    const end = e.currentTarget.selectionEnd
-                    setEditText(
-                      editText.substring(0, start) + '  ' + editText.substring(end)
-                    )
-                    // Set cursor position after the inserted tabs
-                    setTimeout(() => {
-                      e.currentTarget.selectionStart = e.currentTarget.selectionEnd = start + 2
-                    }, 0)
-                  }
-                }}
-              />
+              <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0">
+                <MDXEditor
+                  markdown={note.text}
+                  onChange={(markdown) => onEdit(note.id, markdown)}
+                  plugins={[
+                    headingsPlugin(),
+                    listsPlugin(),
+                    quotePlugin(),
+                    markdownShortcutPlugin(),
+                    linkPlugin(),
+                    tablePlugin(),
+                    thematicBreakPlugin(),
+                    frontmatterPlugin(),
+                    codeBlockPlugin()
+                  ]}
+                  contentEditableClassName="min-h-[280px] font-mono text-sm"
+                  className="!bg-transparent !border-0 !p-0"
+                />
+              </div>
             </ScrollArea>
           </CardContent>
           <CardFooter className="p-3 pt-2 border-t border-border/50">

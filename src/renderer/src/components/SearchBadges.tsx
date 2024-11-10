@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
 import type { SearchResult } from '../App'
 import { cn } from '@/lib/utils'
+import { Loader2 } from 'lucide-react'
 
 export interface SearchStep {
   id: string
@@ -21,7 +22,7 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
     }
   }, [steps])
 
-  // Filter out completed evaluation steps without answers after 2 seconds
+  // Filter out completed evaluation steps without answers
   const filteredSteps = steps.filter(step => {
     if (step.query === 'Evaluating results...' && step.status === 'complete' && !step.answer) {
       return false
@@ -51,13 +52,13 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
               'destructive'
             }
             className={cn(
-              'whitespace-nowrap transition-all duration-200',
-              step.status === 'complete' ? 'bg-primary text-primary-foreground' :
-              step.status === 'thinking' ? 'animate-pulse' :
-              step.status === 'searching' ? 'animate-pulse bg-muted' :
-              ''
+              'whitespace-nowrap transition-all duration-200 flex items-center gap-1',
+              step.status === 'complete' ? 'bg-primary text-primary-foreground' : ''
             )}
           >
+            {(step.status === 'searching' || step.status === 'thinking') && (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            )}
             {step.query}
             {step.answer && (
               <span className="ml-2 text-xs opacity-75">
