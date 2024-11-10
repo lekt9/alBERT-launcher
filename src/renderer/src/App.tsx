@@ -266,32 +266,28 @@ function App(): JSX.Element {
     const MAX_CONTEXT_LENGTH = 50000
     let context = ''
 
-    // Get all documents for scoring
-    const documents = [
-      ...searchResults.map((result) => ({
+    try {
+      // First, add all sticky notes to context as they are prioritized
+      const stickyContext = stickyNotes
+        .map((note) => {
+          const relevanceNote = ' (pinned)'
+          return `\n\nFrom ${note.metadata.path}${relevanceNote}:\n${note.text}`
+        })
+        .join('')
+
+      // Calculate remaining context length for search results
+      const remainingLength = MAX_CONTEXT_LENGTH - stickyContext.length
+
+      // Get search results for scoring
+      const searchDocuments = searchResults.map((result) => ({
         content: result.text,
         path: result.metadata.path,
         type: result.metadata.sourceType === 'web' ? 'web' : 'document'
-      })),
-      ...stickyNotes.map((note) => ({
-        content: note.text,
-        path: note.metadata.path,
-        type: 'pinned'
       }))
-    ]
 
-    if (documents.length === 0) return ''
-
-    try {
-      // Calculate total content length and select documents up to MAX_CONTEXT_LENGTH
-      let currentLength = 0
-      const selectedDocuments = documents
-        .sort((a, b) => {
-          // Prioritize pinned documents
-          if (a.type === 'pinned' && b.type !== 'pinned') return -1
-          if (a.type !== 'pinned' && b.type === 'pinned') return 1
-          return 0
-        })
+      // Select search documents up to remaining length
+      let currentLength = stickyContext.length
+      const selectedSearchDocs = searchDocuments
         .filter((doc) => {
           const length = doc.content.length
           if (currentLength + length <= MAX_CONTEXT_LENGTH) {
@@ -301,13 +297,17 @@ function App(): JSX.Element {
           return false
         })
 
-      // Build context from selected documents
-      context = selectedDocuments
-        .map((doc) => {
-          const relevanceNote = doc.type === 'pinned' ? ' (pinned)' : ''
-          return `\n\nFrom ${doc.path}${relevanceNote}:\n${doc.content}`
-        })
-        .join('')
+      // Build context with sticky notes first, then search results
+      context = stickyContext // Start with sticky notes
+
+      // Add search results if there's space
+      if (selectedSearchDocs.length > 0) {
+        const searchContext = selectedSearchDocs
+          .map((doc) => `\n\nFrom ${doc.path}:\n${doc.content}`)
+          .join('')
+        
+        context += searchContext
+      }
 
       return context.trim()
     } catch (error) {
@@ -362,7 +362,7 @@ function App(): JSX.Element {
         model,
         prompt: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. If the context doesn't contain relevant information, say so.
 
-When citing sources, use markdown links in your response like this: [relevant text](path/to/source). Make sure to cite your sources inline, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
+When citing sources, use markdown links in your response like this: [relevant text](<realpath/to/source>). Make sure to cite your sources inline without fake links, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
 
 Context (sorted by relevance):
 ${combinedSearchContext}
@@ -600,21 +600,64 @@ Response (must be valid JSON):`
     }
   }
 
-  // Add this function near other utility functions
+  // Update the fetchSources function to handle lazy content loading
   const fetchSources = async (results: SearchResult[]): Promise<Source[]> => {
     try {
       // Get unique paths from search results
       const paths = [...new Set(results.map((r) => r.metadata.path))]
+      const sources: Source[] = []
 
-      // Fetch source contents
-      const sources = await trpcClient.sources.fetch.query(paths)
+      // Create initial sources with preview text
+      for (const path of paths) {
+        const result = results.find(r => r.metadata.path === path)
+        if (result) {
+          sources.push({
+            path,
+            preview: truncateText(result.text, 200),
+            citations: [],
+            description: result.text // Use initial text as description
+          })
+        }
+      }
 
-      return sources.map((source) => ({
-        path: source.path,
-        preview: truncateText(source.content, 200),
-        citations: [],
-        description: source.content
-      }))
+      // Update conversations with initial sources
+      setConversations(prev => 
+        prev.map((conv, i) => 
+          i === prev.length - 1 
+            ? { ...conv, sources }
+            : conv
+        )
+      )
+
+      // Fetch full content for each source in the background
+      paths.forEach(async (path) => {
+        try {
+          const response = await trpcClient.content.fetch.query(path)
+          if (response.content) {
+            // Update sources with full content
+            const updatedSource = {
+              path,
+              preview: truncateText(response.content, 200),
+              citations: [],
+              description: response.content
+            }
+
+            // Update conversations with the new source content
+            setConversations(prev => 
+              prev.map((conv) => ({
+                ...conv,
+                sources: conv.sources?.map(s => 
+                  s.path === path ? updatedSource : s
+                ) || []
+              }))
+            )
+          }
+        } catch (error) {
+          console.error(`Error fetching content for ${path}:`, error)
+        }
+      })
+
+      return sources
     } catch (error) {
       console.error('Error fetching sources:', error)
       return []
@@ -1444,6 +1487,16 @@ Response (must be valid JSON):`
     }
   }
 
+  // Add clearChat function
+  const clearChat = useCallback(() => {
+    setConversations([])
+    setQuery('')
+    setSearchResults([])
+    setShowResults(false)
+    setSearchSteps([])
+    dispatch({ type: 'RESET' })
+  }, [])
+
   // Update the return statement in App component to include the drag area and sticky notes
   return (
     <div
@@ -1539,6 +1592,7 @@ Response (must be valid JSON):`
                     isLoading={isLoading}
                     onDragStart={handleDragStart}
                     onDragEnd={handleDragEnd}
+                    onNewChat={clearChat}
                   />
                 </CardContent>
               </Card>

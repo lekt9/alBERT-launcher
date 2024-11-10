@@ -7,6 +7,7 @@ import log from './logger'
 import path from 'node:path'
 import { readContent } from './utils/reader'
 import { embed, rerank } from './embeddings'
+import { SearchResult } from 'brave-search/dist/types'
 
 const t = initTRPC.create({
   isServer: true
@@ -111,26 +112,8 @@ export const getRouter = (window: BrowserWindow) => {
             quickSearchWeb(searchTerm)
           ])
 
-          // For web results, fetch full content immediately
-          const webResultsWithContent = await Promise.all(
-            webResults.map(async (result) => {
-              if (result.metadata.sourceType === 'web') {
-                try {
-                  const content = await readContent(result.metadata.path)
-                  return {
-                    ...result,
-                    text: content || result.text // Fallback to description if content fetch fails
-                  }
-                } catch (error) {
-                  log.error(`Failed to fetch content for ${result.metadata.path}:`, error)
-                  return result // Keep original description if fetch fails
-                }
-              }
-              return result
-            })
-          )
-
-          const combinedResults = [...fileResults, ...webResultsWithContent].filter(
+          // Return results without fetching content
+          const combinedResults = [...fileResults, ...webResults].filter(
             (result) => result.text && result.text.trim().length > 0
           )
 
@@ -222,45 +205,19 @@ export const getRouter = (window: BrowserWindow) => {
               error: String(error)
             }
           }
-        }),
-      
-      rerank: t.procedure
-        .input(z.object({
-          query: z.string(),
-          documents: z.array(z.object({
-            text: z.string(),
-            metadata: z.any()
-          }))
-        }))
-        .query(async ({ input }) => {
-          try {
-            const { query, documents } = input
-            const rankings = await rerank(
-              query,
-              documents.map(d => d.text)
-            )
-            
-            return documents.map((doc, i) => ({
-              ...doc,
-              dist: rankings[i]
-            }))
-          } catch (error) {
-            log.error('Error reranking:', error)
-            throw error
-          }
         })
     }),
   })
 }
 
 // Helper functions
-async function searchFiles(searchTerm: string) {
+async function searchFiles(searchTerm: string): Promise<SearchResult[]> {
   const userDataPath = app.getPath('userData')
   const searchDB = await SearchDB.getInstance(userDataPath)
   return await searchDB.search(searchTerm)
 }
 
-async function quickSearchWeb(searchTerm: string) {
+async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
   try {
     const searchResults = await braveSearch.webSearch(searchTerm, {
       count: 5,
@@ -273,8 +230,9 @@ async function quickSearchWeb(searchTerm: string) {
       return []
     }
 
+    // Return just the description/preview without fetching full content
     return searchResults.web.results.map(result => ({
-      text: result.description || result.title,
+      text: result.description || result.title, // Use description as preview
       metadata: {
         path: result.url,
         title: result.title,
@@ -286,7 +244,7 @@ async function quickSearchWeb(searchTerm: string) {
         owner: null,
         seen_at: Date.now() / 1000,
         sourceType: 'web',
-        description: result.description // Add description to metadata
+        description: result.description
       }
     }))
   } catch (error) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Pin, FileText, ExternalLink, Send } from 'lucide-react'
+import { MessageSquare, Pin, FileText, ExternalLink, Send, Plus } from 'lucide-react'
 import { AIResponse } from '@/types'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import ReactMarkdown from 'react-markdown'
@@ -19,6 +19,7 @@ interface ResponsePanelProps {
   isLoading: boolean
   onDragStart: (e: React.DragEvent<HTMLDivElement>, content: { text: string; metadata: any }) => void
   onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
+  onNewChat: () => void
 }
 
 const ResponsePanel: React.FC<ResponsePanelProps> = ({ 
@@ -27,7 +28,8 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
   askAIQuestion,
   isLoading,
   onDragStart,
-  onDragEnd
+  onDragEnd,
+  onNewChat
 }) => {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const lastMessageRef = useRef<HTMLDivElement>(null)
@@ -82,6 +84,19 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
 
   return (
     <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-4 py-2 border-b">
+        <h2 className="text-sm font-medium">Chat History</h2>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onNewChat}
+          className="hover:bg-accent rounded-full"
+          title="New Chat"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+
       <ScrollArea 
         ref={scrollAreaRef}
         className="flex-1"
