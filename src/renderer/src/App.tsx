@@ -43,6 +43,7 @@ import {
   imagePlugin
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
+import { Onboarding } from '@/components/Onboarding'
 
 interface SearchResult {
   text: string
@@ -1731,14 +1732,28 @@ Response (must be valid JSON):`
     return (): void => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
+  // Add to existing imports
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    const hasCompletedOnboarding = localStorage.getItem('onboarding-completed')
+    return !hasCompletedOnboarding
+  })
 
-  // Update the return statement in App component to include the drag area and sticky notes
+  // Add this function near other utility functions
+  const handleOnboardingComplete = () => {
+    localStorage.setItem('onboarding-completed', 'true')
+    setShowOnboarding(false)
+  }
+
+  // Update the return statement to include Onboarding
   return (
     <div
       className="h-screen w-screen flex items-center justify-center bg-background/0 backdrop-blur-sm"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
+      {/* Add Onboarding at the top level */}
+      {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
+
       <div className="flex flex-col">
         <div className="flex gap-4 transition-all duration-200">
           {/* Settings Panel */}
