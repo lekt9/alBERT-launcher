@@ -399,8 +399,16 @@ Answer with inline citations:`
   // Add to your state definitions
   const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
 
-  // Update the breakDownQuery function to use only necessary context
+  // Update the breakDownQuery function to evaluate existing results first
   const breakDownQuery = async (query: string, existingContext: string = ''): Promise<string[]> => {
+    // First evaluate if existing results are sufficient
+    if (searchResults.length > 0) {
+      const evaluation = await evaluateSearchResults(query, query, searchResults)
+      if (evaluation.hasAnswer) {
+        return []  // Return empty array to indicate sufficient context
+      }
+    }
+
     // Use only the chain of reasoning from previous sub-queries (existingContext)
     // and the ranked/truncated combinedSearchContext
     const fullContext = [existingContext, combinedSearchContext].filter(Boolean).join('\n\n')
@@ -676,16 +684,140 @@ Response (must be valid JSON):`
     }
   }
 
-  // Update the askAIQuestion function to handle errors better
+  // Update the askAIQuestion function to better handle evaluation steps
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
       setSearchSteps([])
-      let allResults: SearchResult[] = []
+      let allResults: SearchResult[] = [...searchResults] // Start with existing results
       const subQueryAnswers: { query: string; answer: string }[] = []
       let currentContext = ''
       let allSources: Source[] = []
 
       try {
+        // Add initial evaluation step
+        const initialStepId = uuidv4()
+        setSearchSteps((prev) => [
+          ...prev,
+          {
+            id: initialStepId,
+            query: 'Evaluating existing results...',
+            status: 'thinking'
+          }
+        ])
+
+        // First evaluate existing results
+        if (allResults.length > 0) {
+          const evaluation = await evaluateSearchResults(originalQuery, originalQuery, allResults)
+          if (evaluation.hasAnswer && evaluation.answer) {
+            try {
+              const parsedAnswer = JSON.parse(evaluation.answer)
+              
+              // Update evaluation step to complete with answer
+              setSearchSteps((prev) =>
+                prev.map((step) =>
+                  step.id === initialStepId
+                    ? {
+                        ...step,
+                        status: 'complete',
+                        query: 'Found relevant information',
+                        answer: parsedAnswer.answer.slice(0, 50) + (parsedAnswer.answer.length > 50 ? '...' : '')
+                      }
+                    : step
+                )
+              )
+
+              // Use existing results for sources
+              allSources = await fetchSources(allResults)
+
+              // Skip further searching and go straight to final response
+              const baseModel = provider(currentSettings.model)
+              const contextMiddleware = createContextMiddleware({
+                getContext: () => '' // Context will be provided in the prompt
+              })
+
+              const model = wrapLanguageModel({
+                model: baseModel,
+                middleware: contextMiddleware
+              })
+
+              const textStream = await generateChatResponse(model, originalQuery, parsedAnswer.answer)
+
+              // Create and update conversation
+              const newConversation: AIResponse = {
+                question: originalQuery,
+                answer: '',
+                timestamp: Date.now(),
+                sources: allSources
+              }
+
+              setConversations((prev) => [...prev, newConversation])
+
+              let fullResponse = ''
+              for await (const textPart of textStream.textStream) {
+                fullResponse += textPart
+                // Update conversation with streaming response
+                setConversations((prev) =>
+                  prev.map((conv, i) =>
+                    i === prev.length - 1
+                      ? {
+                          ...conv,
+                          answer: fullResponse,
+                          sources: allSources
+                        }
+                      : conv
+                  )
+                )
+              }
+
+              setIsLoading(false)
+              return
+            } catch (error) {
+              console.error('Error processing initial evaluation:', error)
+              // Update evaluation step to failed
+              setSearchSteps((prev) =>
+                prev.map((step) =>
+                  step.id === initialStepId
+                    ? {
+                        ...step,
+                        status: 'failed',
+                        answer: 'Failed to process evaluation'
+                      }
+                    : step
+                )
+              )
+            }
+          } else {
+            // Update evaluation step to complete but indicate need for more info
+            setSearchSteps((prev) =>
+              prev.map((step) =>
+                step.id === initialStepId
+                  ? {
+                      ...step,
+                      status: 'complete',
+                      query: 'Need more information',
+                      answer: 'Searching for additional context...'
+                    }
+                  : step
+              )
+            )
+          }
+        } else {
+          // Update evaluation step to complete but indicate no results
+          setSearchSteps((prev) =>
+            prev.map((step) =>
+              step.id === initialStepId
+                ? {
+                    ...step,
+                    status: 'complete',
+                    query: 'No existing results',
+                    answer: 'Starting new search...'
+                  }
+                : step
+            )
+          )
+        }
+
+        // Continue with existing search logic if initial evaluation wasn't sufficient
         let keepSearching = true
         let searchAttempts = 0
         const MAX_SEARCH_ATTEMPTS = 3
@@ -1009,6 +1141,19 @@ Response (must be valid JSON):`
         }
       } catch (error) {
         console.error('AI answer failed:', error)
+        // Update any thinking steps to failed
+        setSearchSteps((prev) =>
+          prev.map((step) =>
+            step.status === 'thinking'
+              ? {
+                  ...step,
+                  status: 'failed',
+                  answer: 'Search process failed'
+                }
+              : step
+          )
+        )
+        
         // Only add error conversation if we haven't already added a conversation
         setConversations((prev) => {
           const hasCurrentConversation = prev.some(
@@ -1031,7 +1176,7 @@ Response (must be valid JSON):`
         setIsLoading(false)
       }
     },
-    [currentSettings, combinedSearchContext, conversations, stickyNotes]
+    [currentSettings, combinedSearchContext, conversations, stickyNotes, searchResults]
   )
 
   // Add state machine
@@ -1261,7 +1406,7 @@ Response (must be valid JSON):`
     setSearchSteps([])
     dispatch({ type: 'RESET' })
   }, [])
-  
+
   // Add this new function to handle creating sticky notes
   const createStickyNote = (
     result: SearchResult | { text: string; metadata: any },
@@ -1419,16 +1564,7 @@ Response (must be valid JSON):`
       </motion.div>
     )
   }
-
-  // Modify the SearchResults component props to include drag handlers
-  interface SearchResultsProps {
-    searchResults: SearchResult[]
-    selectedIndex: number
-    rankedChunks: RankedChunk[]
-    onDragStart: (e: React.DragEvent<HTMLDivElement>, result: SearchResult) => void
-    onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
-  }
-
+  
   // Update the setSearchResults calls to filter out sticky notes
   const filterOutStickyNotes = (results: SearchResult[]): SearchResult[] => {
     const stickyNotePaths = new Set(stickyNotes.map((note) => note.metadata.path))

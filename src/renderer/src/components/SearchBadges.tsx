@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
 import type { SearchResult } from '../App'
 import { cn } from '@/lib/utils'
-import { Loader2 } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle } from 'lucide-react'
 
 export interface SearchStep {
   id: string
@@ -30,6 +30,20 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
     return true
   })
 
+  const getStatusIcon = (status: SearchStep['status']) => {
+    switch (status) {
+      case 'searching':
+      case 'thinking':
+        return <Loader2 className="h-3 w-3 animate-spin" />
+      case 'complete':
+        return <CheckCircle2 className="h-3 w-3 text-primary-foreground" />
+      case 'failed':
+        return <XCircle className="h-3 w-3 text-destructive-foreground" />
+      default:
+        return null
+    }
+  }
+
   return (
     <div 
       ref={scrollContainerRef}
@@ -52,13 +66,12 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
               'destructive'
             }
             className={cn(
-              'whitespace-nowrap transition-all duration-200 flex items-center gap-1',
-              step.status === 'complete' ? 'bg-primary text-primary-foreground' : ''
+              'whitespace-nowrap transition-all duration-200 flex h-6 items-center gap-1',
+              step.status === 'complete' ? 'bg-primary text-primary-foreground' : '',
+              step.status === 'failed' ? 'bg-destructive text-destructive-foreground' : ''
             )}
           >
-            {(step.status === 'searching' || step.status === 'thinking') && (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            )}
+            {getStatusIcon(step.status)}
             {step.query}
             {step.answer && (
               <span className="ml-2 text-xs opacity-75">
