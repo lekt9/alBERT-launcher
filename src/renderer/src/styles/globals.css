@@ -1,0 +1,26 @@
+/* Add these styles to your global CSS */
+[data-highlight] {
+  transition: all 0.3s ease-in-out;
+}
+
+.highlight-active {
+  box-shadow: 0 0 0 4px theme('colors.primary.500') !important;
+  z-index: 60 !important;
+}
+
+/* Optional: Add a pulse animation */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--primary), 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(var(--primary), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--primary), 0);
+  }
+}
+
+.highlight-active {
+  animation: pulse 2s infinite;
+} 

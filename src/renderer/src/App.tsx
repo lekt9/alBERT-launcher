@@ -1754,7 +1754,7 @@ Response (must be valid JSON):`
       {/* Add Onboarding at the top level */}
       {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
 
-      <div className="flex flex-col">
+      <div className="flex flex-col" data-highlight="search-container">
         <div className="flex gap-4 transition-all duration-200">
           {/* Settings Panel */}
           {activePanel === 'settings' && (
@@ -1782,6 +1782,7 @@ Response (must be valid JSON):`
           <Card
             className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
             style={{ width: 600 }}
+            data-highlight="search-container"
           >
             <CardContent
               className={cn(
@@ -1811,6 +1812,7 @@ Response (must be valid JSON):`
                   isPrivate={isPrivate}
                   handlePrivacyToggle={setIsPrivate}
                   handleInputChange={handleInputChange}
+                  data-highlight="search-input"
                 />
 
                 {/* Results Section */}
@@ -1821,6 +1823,7 @@ Response (must be valid JSON):`
                     rankedChunks={rankedChunks}
                     onDragStart={handleDragStart}
                     onDragEnd={handleDragEnd}
+                    data-highlight="search-results"
                   />
                 )}
               </div>
@@ -1833,6 +1836,7 @@ Response (must be valid JSON):`
               <Card
                 className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
                 style={{ width: 600 }}
+                data-highlight="response-panel"
               >
                 <CardContent className="p-4 flex flex-col h-[600px]">
                   <ResponsePanel
@@ -1850,7 +1854,7 @@ Response (must be valid JSON):`
           )}
         </div>
 
-        <KeyboardShortcuts showDocument={activePanel === 'document'} activePanel={activePanel} />
+        <KeyboardShortcuts showDocument={activePanel === 'document'} activePanel={activePanel} data-highlight="keyboard-shortcuts" />
       </div>
 
       {/* Sticky Notes Layer */}

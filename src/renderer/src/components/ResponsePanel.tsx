@@ -230,11 +230,6 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="font-medium truncate">{source.path}</div>
-                              {source.description && (
-                                <div className="text-sm text-muted-foreground mt-1">
-                                  {source.description}
-                                </div>
-                              )}
                               {source.citations && source.citations.length > 0 && (
                                 <div className="mt-2 space-y-1">
                                   {source.citations.map((citation, i) => (
