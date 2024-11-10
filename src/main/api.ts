@@ -1,7 +1,7 @@
 import { initTRPC } from '@trpc/server'
 import { z } from 'zod'
 import { BrowserWindow, app, shell } from 'electron'
-import { tavily } from '@tavily/core'
+import { BraveSearch } from 'brave-search'
 import SearchDB from './db'
 import log from './logger'
 import path from 'node:path'
@@ -26,8 +26,7 @@ const t = initTRPC.create({
   isServer: true
 })
 
-// Initialize Tavily client
-const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY || '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' })
+const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || 'BSAl9amg1Hel8m8nwWsszt-j6DuAXiZ')
 
 export const getRouter = (window: BrowserWindow) => {
   const router = t.router
@@ -263,22 +262,25 @@ async function searchFiles(searchTerm: string): Promise<SearchResult[]> {
   return await searchDB.search(searchTerm)
 }
 
-// Update quickSearchWeb function to use Tavily
 async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
   try {
-    const searchResults = JSON.parse(JSON.parse(await tvly.searchContext(searchTerm, {
-      includeImages: false,
-      includeImageDescriptions: false,
-      includeAnswer: false,
-      includeRawContent: true
-    })))
+    const searchResults = await braveSearch.webSearch(searchTerm, {
+      count: 5,
+      search_lang: 'en',
+      country: 'US',
+      text_decorations: false
+    })
 
-    // Convert Tavily results to SearchResult format
-    return searchResults.map(result => ({
-      text: result.content, // Use full content from Tavily
+    if (!searchResults.web?.results) {
+      return []
+    }
+
+    // Return just the description/preview without fetching full content
+    return searchResults.web.results.map(result => ({
+      text: result.description || result.title, // Use description as preview
       metadata: {
         path: result.url,
-        title: result.url,
+        title: result.title,
         created_at: Date.now() / 1000,
         modified_at: Date.now() / 1000,
         filetype: 'web',
@@ -287,11 +289,11 @@ async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
         owner: null,
         seen_at: Date.now() / 1000,
         sourceType: 'web',
-        description: result.content
+        description: result.description
       }
     }))
   } catch (error) {
-    log.error('Error performing Tavily search:', error)
+    log.error('Error performing quick web search:', error)
     return []
   }
 }
