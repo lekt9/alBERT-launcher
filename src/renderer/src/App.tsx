@@ -419,7 +419,7 @@ Answer with inline citations:`
     })
 
     const model = wrapLanguageModel({
-      model: provider(currentSettings.model),
+      model: provider('meta-llama/llama-3.2-3b-instruct'),
       middleware: contextMiddleware
     })
 
@@ -504,7 +504,7 @@ Response (either a specific search query or CONTEXT_SUFFICIENT):`
         // Generate suggestions when no chunks are found
         const suggestionResponse = await generateText({
           model: wrapLanguageModel({
-            model: provider(currentSettings.model),
+            model: provider('meta-llama/llama-3.2-3b-instruct'),
             middleware: createContextMiddleware({ getContext: () => '' })
           }),
           prompt: `Given the original query "${originalQuery}" and the sub-query "${subQuery}", suggest 2-3 specific aspects or pieces of information that would be most helpful to find. Format each suggestion as a search query.
@@ -542,7 +542,7 @@ Response:`
       })
 
       const model = wrapLanguageModel({
-        model: provider(currentSettings.model),
+        model: provider('meta-llama/llama-3.2-3b-instruct'),
         middleware: contextMiddleware
       })
 

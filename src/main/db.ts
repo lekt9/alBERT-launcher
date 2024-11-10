@@ -253,7 +253,7 @@ class SearchDB {
           query: searchTerm,
           vector,
         })
-        .withLimit(4)
+        .withLimit(10)
         .withFields('content path lastModified extension')
         .do()
 
