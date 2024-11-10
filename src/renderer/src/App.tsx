@@ -29,7 +29,19 @@ import ReactMarkdown from 'react-markdown'
 import { Globe, FileText, X, Pencil, Save } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
-import { MDXEditor, headingsPlugin, listsPlugin, quotePlugin, markdownShortcutPlugin, linkPlugin, tablePlugin, thematicBreakPlugin, frontmatterPlugin, codeBlockPlugin } from '@mdxeditor/editor'
+import { 
+  MDXEditor, 
+  headingsPlugin, 
+  listsPlugin, 
+  quotePlugin, 
+  markdownShortcutPlugin, 
+  linkPlugin, 
+  tablePlugin, 
+  thematicBreakPlugin, 
+  frontmatterPlugin, 
+  codeBlockPlugin,
+  imagePlugin
+} from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
 
 interface SearchResult {
@@ -1375,6 +1387,16 @@ Response (must be valid JSON):`
   }> = ({ note, onClose, onDrag, onEdit }) => {
     const noteRef = useRef<HTMLDivElement>(null)
 
+    // Add image handling configuration
+    const handleImageUpload = async (file: File) => {
+      // For now, we'll just return a data URL
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(file)
+      })
+    }
+
     return (
       <motion.div
         ref={noteRef}
@@ -1425,7 +1447,7 @@ Response (must be valid JSON):`
           </CardHeader>
           <CardContent className="p-3 pt-0">
             <ScrollArea className="h-[300px] w-full rounded-md pr-4">
-              <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0">
+              <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0 [&_img]:max-w-full [&_img]:h-auto">
                 <MDXEditor
                   markdown={note.text}
                   onChange={(markdown) => onEdit(note.id, markdown)}
@@ -1438,10 +1460,11 @@ Response (must be valid JSON):`
                     tablePlugin(),
                     thematicBreakPlugin(),
                     frontmatterPlugin(),
-                    codeBlockPlugin()
+                    codeBlockPlugin(),
+                    imagePlugin({ imageUploadHandler: handleImageUpload })
                   ]}
                   contentEditableClassName="min-h-[280px] font-mono text-sm"
-                  className="!bg-transparent !border-0 !p-0"
+                  className="!bg-transparent !border-0 !p-0 overflow-hidden"
                 />
               </div>
             </ScrollArea>

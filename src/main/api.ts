@@ -7,7 +7,20 @@ import log from './logger'
 import path from 'node:path'
 import { readContent } from './utils/reader'
 import { embed, rerank } from './embeddings'
-import { SearchResult } from 'brave-search/dist/types'
+import { SearchResult, CommonSearchResult } from './types'
+
+interface CacheEntry {
+  timestamp: number;
+  results: SearchResult[];
+}
+
+const searchCache = new Map<string, CacheEntry>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+// Helper function to check if cache entry is still valid
+function isCacheValid(entry: CacheEntry): boolean {
+  return Date.now() - entry.timestamp < CACHE_DURATION;
+}
 
 const t = initTRPC.create({
   isServer: true
@@ -107,15 +120,27 @@ export const getRouter = (window: BrowserWindow) => {
       quick: t.procedure.input(z.string()).query(async ({ input: searchTerm }) => {
         log.info('tRPC Call: search.quick')
         try {
+          // Check cache first
+          const cachedResult = searchCache.get(searchTerm);
+          if (cachedResult && isCacheValid(cachedResult)) {
+            log.info('Returning cached search results');
+            return cachedResult.results;
+          }
+
           const [fileResults, webResults] = await Promise.all([
             searchFiles(searchTerm),
             quickSearchWeb(searchTerm)
           ])
 
-          // Return results without fetching content
           const combinedResults = [...fileResults, ...webResults].filter(
             (result) => result.text && result.text.trim().length > 0
           )
+
+          // Cache the results
+          searchCache.set(searchTerm, {
+            timestamp: Date.now(),
+            results: combinedResults
+          });
 
           return combinedResults
         } catch (error) {
@@ -123,6 +148,26 @@ export const getRouter = (window: BrowserWindow) => {
           throw error
         }
       }),
+
+      // Add a new procedure to clear the cache
+      clearCache: t.procedure.mutation(() => {
+        log.info('tRPC Call: search.clearCache');
+        searchCache.clear();
+        return true;
+      }),
+
+      // Add a procedure to get cache stats
+      getCacheStats: t.procedure.query(() => {
+        const stats = {
+          size: searchCache.size,
+          entries: Array.from(searchCache.entries()).map(([key, value]) => ({
+            query: key,
+            timestamp: value.timestamp,
+            isValid: isCacheValid(value)
+          }))
+        };
+        return stats;
+      })
     }),
 
     window: router({
