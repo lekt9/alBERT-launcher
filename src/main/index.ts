@@ -82,6 +82,14 @@ function createWindow(): void {
     mainWindow = null
   })
 }
+
+function openAlBERTFolder(): void {
+  const alBERTPath = path.join(app.getPath('home'), 'alBERT')
+  shell.openPath(alBERTPath).catch((error) => {
+    console.error('Failed to open alBERT folder:', error)
+  })
+}
+
 function createTray(): void {
   const icon = nativeImage.createFromPath(
     path.join(process.env.VITE_PUBLIC || '', 'electron-vite.svg')
@@ -94,13 +102,6 @@ function createTray(): void {
   ])
   tray.setToolTip('Your App Name')
   tray.setContextMenu(contextMenu)
-}
-
-function openAlBERTFolder(): void {
-  const alBERTPath = path.join(app.getPath('home'), 'alBERT')
-  shell.openPath(alBERTPath).catch((error) => {
-    console.error('Failed to open alBERT folder:', error)
-  })
 }
 
 function toggleWindow(): void {

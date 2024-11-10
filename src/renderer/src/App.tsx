@@ -1037,74 +1037,6 @@ Response (must be valid JSON):`
   // Add state machine
   const [searchState, dispatch] = useReducer(searchReducer, { status: 'idle' })
 
-  // Update handleKeyDown to handle Enter key press
-  const handleKeyDown = useCallback(
-    async (e: KeyboardEvent): Promise<void> => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        if (!query.trim() || isLoading) return
-
-        setIsLoading(true)
-        dispatch({ type: 'START_SEARCH', payload: { query } })
-
-        try {
-          const quickResults = await trpcClient.search.quick.query(query)
-          if (quickResults.length === 0) {
-            setShowResults(false)
-            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
-            return
-          }
-
-          // Filter and update results
-          const filteredResults = filterOutStickyNotes(quickResults)
-          setSearchResults(filteredResults)
-          setShowResults(true)
-          setSearchCache((prev) => {
-            const newCache = [
-              { query, results: filteredResults, timestamp: Date.now() },
-              ...prev.filter((item) => item.query !== query)
-            ].slice(0, 5)
-            return newCache
-          })
-
-          // Start background fetch of full content
-          filteredResults.forEach(async (result) => {
-            try {
-              if (result.metadata.sourceType === 'web' && result.text.length > 500) {
-                return
-              }
-
-              const response = await trpcClient.content.fetch.query(result.metadata.path)
-              if (response.content) {
-                setSearchResults((prev) =>
-                  prev.map((r) =>
-                    r.metadata.path === result.metadata.path ? { ...r, text: response.content } : r
-                  )
-                )
-              }
-            } catch (error) {
-              console.error('Error fetching full content:', error)
-            }
-          })
-
-          // Start chat
-          dispatch({ type: 'START_CHAT', payload: { query, results: filteredResults } })
-          await askAIQuestion(query)
-          dispatch({ type: 'CHAT_COMPLETE' })
-        } catch (error) {
-          console.error('Search or chat failed:', error)
-          dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
-        } finally {
-          setIsLoading(false)
-        }
-        return
-      }
-
-      // ... rest of the keyboard handlers
-    },
-    [query, searchState, activePanel, selectedIndex, searchResults, conversations, askAIQuestion, showResults, stickyNotes, isLoading]
-  )
-
   // Update debouncedSearch to not handle chat
   const debouncedSearch = useCallback(
     async (searchQuery: string): Promise<boolean> => {
@@ -1254,12 +1186,6 @@ Response (must be valid JSON):`
     }
   }, [])
 
-  // Keyboard Event Handler
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown)
-    return (): void => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
-
   // Scroll into view for selected search result
   useEffect(() => {
     const selectedCard = document.querySelector(`.card-item:nth-child(${selectedIndex + 1})`)
@@ -1326,6 +1252,16 @@ Response (must be valid JSON):`
     isDragging?: boolean
   }
 
+  // Add clearChat function
+  const clearChat = useCallback(() => {
+    setConversations([])
+    setQuery('')
+    setSearchResults([])
+    setShowResults(false)
+    setSearchSteps([])
+    dispatch({ type: 'RESET' })
+  }, [])
+  
   // Add this new function to handle creating sticky notes
   const createStickyNote = (
     result: SearchResult | { text: string; metadata: any },
@@ -1510,15 +1446,155 @@ Response (must be valid JSON):`
     }
   }
 
-  // Add clearChat function
-  const clearChat = useCallback(() => {
-    setConversations([])
-    setQuery('')
-    setSearchResults([])
-    setShowResults(false)
-    setSearchSteps([])
-    dispatch({ type: 'RESET' })
-  }, [])
+  // Update handleKeyDown to handle Enter key press
+  const handleKeyDown = useCallback(
+    async (e: KeyboardEvent): Promise<void> => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (!query.trim() || isLoading) return
+
+        setIsLoading(true)
+        dispatch({ type: 'START_SEARCH', payload: { query } })
+
+        try {
+          const quickResults = await trpcClient.search.quick.query(query)
+          if (quickResults.length === 0) {
+            setShowResults(false)
+            dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
+            return
+          }
+
+          // Filter and update results
+          const filteredResults = filterOutStickyNotes(quickResults)
+          setSearchResults(filteredResults)
+          setShowResults(true)
+          setSearchCache((prev) => {
+            const newCache = [
+              { query, results: filteredResults, timestamp: Date.now() },
+              ...prev.filter((item) => item.query !== query)
+            ].slice(0, 5)
+            return newCache
+          })
+
+          // Start chat
+          dispatch({ type: 'START_CHAT', payload: { query, results: filteredResults } })
+          await askAIQuestion(query)
+          dispatch({ type: 'CHAT_COMPLETE' })
+        } catch (error) {
+          console.error('Search or chat failed:', error)
+          dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
+        } finally {
+          setIsLoading(false)
+        }
+        return
+      }
+
+      // Handle Escape key
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        clearChat()
+        return
+      }
+
+      // Handle arrow keys for navigation
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (showResults && searchResults.length > 0) {
+          setSelectedIndex((prev) => (prev <= 0 ? searchResults.length - 1 : prev - 1))
+        }
+        return
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        if (showResults && searchResults.length > 0) {
+          setSelectedIndex((prev) => (prev >= searchResults.length - 1 ? 0 : prev + 1))
+        }
+        return
+      }
+
+      // Handle left arrow for settings toggle
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        if (activePanel === 'settings') {
+          setActivePanel('response')
+        } else {
+          setActivePanel('settings')
+        }
+        return
+      }
+
+      // Handle right arrow for pinning context
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        if (activePanel === 'settings') {
+          setActivePanel('response')
+          return
+        }
+
+        if (selectedIndex >= 0 && searchResults[selectedIndex]) {
+          const result = searchResults[selectedIndex]
+          createStickyNote(result, {
+            x: window.innerWidth / 2 - 200,
+            y: window.innerHeight / 2 - 200
+          })
+        }
+        return
+      }
+
+      // Handle Cmd/Ctrl + K to open knowledgebase
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        await openAlBERTFolder()
+        return
+      }
+
+      // Handle Cmd/Ctrl + C to copy
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        e.preventDefault()
+        if (selectedIndex >= 0 && searchResults[selectedIndex]) {
+          await copyToClipboard(searchResults[selectedIndex].text, true, true)
+        } else if (searchResults.length > 0) {
+          await copyToClipboard(searchResults.map(r => r.text).join('\n\n'), true, true)
+        }
+        return
+      }
+
+      // Handle Cmd/Ctrl + N for new note
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault()
+        createStickyNote(
+          {
+            text: '# New Note\n\nStart typing here...',
+            metadata: {
+              path: `note-${Date.now()}.md`,
+              created_at: Date.now() / 1000,
+              modified_at: Date.now() / 1000,
+              filetype: 'markdown',
+              languages: ['en'],
+              links: [],
+              owner: null,
+              seen_at: Date.now() / 1000,
+              sourceType: 'document'
+            }
+          },
+          {
+            x: window.innerWidth / 2 - 200,
+            y: window.innerHeight / 2 - 200
+          }
+        )
+        return
+      }
+    },
+    [query, searchState, activePanel, selectedIndex, searchResults, conversations, askAIQuestion, showResults, stickyNotes, isLoading, openAlBERTFolder, copyToClipboard, createStickyNote, clearChat]
+  )
+
+  // Keyboard Event Handler
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return (): void => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
+
 
   // Update the return statement in App component to include the drag area and sticky notes
   return (
