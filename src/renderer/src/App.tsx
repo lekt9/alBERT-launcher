@@ -9,7 +9,7 @@ import React, {
 } from 'react'
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { getContextSimilarityScores, trpcClient } from './util/trpc-client'
-import { cn } from '@/lib/utils'
+import { cn, debounce } from '@/lib/utils'
 import SearchBar from '@/components/SearchBar'
 import SearchResults from '@/components/SearchResults'
 const SettingsPanel = React.lazy(() => import('@/components/SettingsPanel'))
@@ -1539,15 +1539,40 @@ Response (must be valid JSON):`
     onEdit: (id: string, newText: string) => void
   }> = ({ note, onClose, onDrag, onEdit }) => {
     const noteRef = useRef<HTMLDivElement>(null)
+    const [isEditing, setIsEditing] = useState(false)
+    const [localText, setLocalText] = useState(note.text)
+    const editorRef = useRef<any>(null)
+
+    // Add debounced save
+    const debouncedSave = useCallback(
+      debounce((id: string, text: string) => {
+        onEdit(id, text)
+      }, 1000),
+      [onEdit]
+    )
+
+    // Handle text changes
+    const handleTextChange = useCallback(
+      (markdown: string) => {
+        setLocalText(markdown)
+        debouncedSave(note.id, markdown)
+      },
+      [note.id, debouncedSave]
+    )
 
     // Add image handling configuration
-    const handleImageUpload = async (file: File) => {
-      // For now, we'll just return a data URL
-      return new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.readAsDataURL(file)
-      })
+    const handleImageUpload = async (file: File): Promise<string> => {
+      try {
+        // For now, we'll just return a data URL
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.readAsDataURL(file)
+        })
+      } catch (error) {
+        console.error('Error uploading image:', error)
+        throw error
+      }
     }
 
     return (
@@ -1569,6 +1594,14 @@ Response (must be valid JSON):`
           onDrag(note.id, newPos)
         }}
         className="group"
+        dragConstraints={{
+          left: 0,
+          right: window.innerWidth - 384, // w-96 = 384px
+          top: 0,
+          bottom: window.innerHeight - 100
+        }}
+        onFocus={() => setIsEditing(true)}
+        onBlur={() => setIsEditing(false)}
       >
         <Card className="w-96 shadow-lg bg-background/95 backdrop-blur-sm border-muted">
           <CardHeader className="p-3 pb-2">
@@ -1580,7 +1613,7 @@ Response (must be valid JSON):`
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
                 <h3 className="text-sm font-medium leading-none truncate">
-                  {note.metadata.title || note.metadata.path.split('/').pop()}
+                  {note.metadata.path.split('/').pop()}
                 </h3>
               </div>
               <button
@@ -1592,7 +1625,7 @@ Response (must be valid JSON):`
             </div>
             <div
               className="text-xs text-muted-foreground mt-1.5 hover:text-primary cursor-pointer transition-colors truncate pl-6"
-              onClick={() => handlePathClick(note.metadata.path, new MouseEvent('click'))}
+              onClick={(e) => handlePathClick(note.metadata.path, e)}
               title={note.metadata.path}
             >
               {truncateText(note.metadata.path, 60)}
@@ -1602,8 +1635,9 @@ Response (must be valid JSON):`
             <ScrollArea className="h-[300px] w-full rounded-md pr-4">
               <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0 [&_img]:max-w-full [&_img]:h-auto">
                 <MDXEditor
-                  markdown={note.text}
-                  onChange={(markdown) => onEdit(note.id, markdown)}
+                  ref={editorRef}
+                  markdown={localText}
+                  onChange={handleTextChange}
                   plugins={[
                     headingsPlugin(),
                     listsPlugin(),
@@ -1617,7 +1651,10 @@ Response (must be valid JSON):`
                     imagePlugin({ imageUploadHandler: handleImageUpload })
                   ]}
                   contentEditableClassName="min-h-[280px] font-mono text-sm"
-                  className="!bg-transparent !border-0 !p-0 overflow-hidden"
+                  className={cn(
+                    "!bg-transparent !border-0 !p-0 overflow-hidden",
+                    isEditing && "ring-1 ring-ring rounded-sm"
+                  )}
                 />
               </div>
             </ScrollArea>
@@ -1628,7 +1665,7 @@ Response (must be valid JSON):`
                 Modified: {new Date(note.metadata.modified_at * 1000).toLocaleDateString()}
               </span>
               <span className="text-xs opacity-50 select-none">
-                Changes auto-save • Drag to move
+                {isEditing ? 'Editing...' : 'Click to edit • Drag to move'}
               </span>
             </div>
           </CardFooter>
