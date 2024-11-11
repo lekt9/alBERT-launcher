@@ -173,6 +173,12 @@ function App(): JSX.Element {
     return savedPrivacy ? JSON.parse(savedPrivacy) : false
   })
 
+  // Update state name and initialization
+  const [useAgent, setUseAgent] = useState<boolean>(() => {
+    const savedAgentPref = localStorage.getItem('use-agent')
+    return savedAgentPref ? JSON.parse(savedAgentPref) : true
+  });
+
   const [privateSettings, setPrivateSettings] = useState<LLMSettings>(() => {
     const saved = localStorage.getItem('llm-settings-private')
     return saved
@@ -192,7 +198,7 @@ function App(): JSX.Element {
       : {
           baseUrl: 'https://openrouter.ai/api/v1',
           apiKey: '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',
-          model: 'perplexity/llama-3.1-sonar-large-128k-online',
+          model: 'openai/gpt-4o-mini',
           modelType: 'openai'
         }
   })
@@ -363,7 +369,7 @@ function App(): JSX.Element {
     }
   }, [query, searchResults])
 
-  // Then update generateChatResponse to use the synchronous context
+  // Update generateChatResponse to include full agent logic
   const generateChatResponse = useCallback(
     async (
       model: any,
@@ -372,43 +378,35 @@ function App(): JSX.Element {
     ): Promise<{ textStream: AsyncIterable<string> }> => {
       // Get last 4 conversation messages
       const recentConversations = conversations
+        .slice(-8)
         .map((conv) => [
-          { role: 'user' as const, content: conv.question },
-          { role: 'assistant' as const, content: conv.answer }
+          { role: 'user' as const, content: conv.question.slice(0, 2000) },
+          { role: 'assistant' as const, content: conv.answer.slice(0, 2000) }
         ])
         .flat()
-        .slice(-4)
 
-      // If in private mode, skip the agent-based search and use current context directly
-      if (isPrivate) {
+      // If agent is disabled, use direct search and response
+      if (!useAgent) {
         return streamText({
           model,
           messages: [
             {
               role: 'system',
               content: `You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [quote](link to file or url). Do not leave placeholder comments or images inside the response.
-                
-Additional Context (sorted by relevance):
-Context:
-${combinedSearchContext}
-`
+              
+Current Context:
+${combinedSearchContext}`
             },
             ...recentConversations.filter((conv) => conv.role !== 'system'),
             {
               role: 'user',
-              content: `Use the following context to answer the question. Use markdown formatting to create a well formatted response. If the context doesn't contain relevant information, say so.
-
-Question: ${originalQuery}
-
-You MUST provide the urls for everything that relied on external information in the url link citations.
-
-Answer with inline url links as citations:`
+              content: originalQuery
             }
           ]
         })
       }
 
-      // For public mode, keep the existing agent-based approach
+      // For agent-enabled mode, use full context and reasoning
       return streamText({
         model,
         messages: [
@@ -422,7 +420,7 @@ ${combinedSearchContext}`
           ...recentConversations.filter((conv) => conv.role !== 'system'),
           {
             role: 'user',
-            content: `Use the following context and you knowledge to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. 
+            content: `Use the following context and your knowledge to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. 
 
 ${subQueryContext ? `\nReasoning steps:\n${subQueryContext}` : ''}
 
@@ -433,13 +431,13 @@ Answer with inline url links as citations and take account todays date: ${new Da
         ]
       })
     },
-    [combinedSearchContext, conversations, isPrivate]
+    [combinedSearchContext, conversations, useAgent]
   )
 
   // Add to your state definitions
   const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
 
-  // Update the breakDownQuery function to return both queries and results
+  // Update breakDownQuery with full agent logic
   const breakDownQuery = async (
     query: string,
     existingContext: string = ''
@@ -459,11 +457,9 @@ Answer with inline url links as citations and take account todays date: ${new Da
       .slice(-8)
       .map((conv) => [
         { role: 'user' as const, content: conv.question.slice(0, 2000) },
-        { role: 'assistant' as const, content: conv.answer.slice(0, 2000) } // Limit answer length
+        { role: 'assistant' as const, content: conv.answer.slice(0, 2000) }
       ])
       .flat()
-
-    console.log('Recent conversations:', recentConversations.length, 'messages')
 
     const model = wrapLanguageModel({
       model: provider('openai/gpt-3.5-turbo-instruct'),
@@ -476,12 +472,15 @@ Answer with inline url links as citations and take account todays date: ${new Da
         model,
         mode: 'json',
         schema: z.object({
-          // hasAnswer: z
-          //   .boolean()
-          //   .describe('Whether the current context is sufficient to answer the query - be lenient'),
+          hasAnswer: z
+            .boolean()
+            .describe('Whether the current context is sufficient to answer the query - be lenient'),
           suggestedQuery: z
             .string()
-            .describe(`A search query of one sentence to describe the context you need.`)
+            .describe(`A search query of one sentence to describe the context you need.`),
+          reasoning: z
+            .string()
+            .describe('Brief explanation of why more information is needed or why current context is sufficient')
         }),
         messages: [
           {
@@ -517,13 +516,19 @@ Keep your response focused and concise.`
       console.log('Evaluation result:', JSON.stringify(object, null, 2))
 
       // Return both the query and empty results array if we have sufficient context
-      if (true) {
-        return { queries: [], results: [] }
-      }
-      // Return both the query and empty results array if we have sufficient context
       if (object.hasAnswer) {
         return { queries: [], results: [] }
       }
+
+      // Add reasoning to search steps
+      setSearchSteps((prev) => [
+        ...prev,
+        {
+          id: uuidv4(),
+          query: object.reasoning,
+          status: 'thinking'
+        }
+      ])
 
       // Fallback to using the suggested query or a generic one
       const fallbackQuery = object.suggestedQuery || `more specific information about ${query}`
@@ -537,167 +542,92 @@ Keep your response focused and concise.`
     }
   }
 
-  // Update askAIQuestion to properly handle and accumulate search results
+  // Update askAIQuestion to properly handle both agent and non-agent paths
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
-      setSearchSteps([])
-      let allResults: SearchResult[] = [...searchResults] // Start with existing results
-      const allSources: Source[] = []
+      const baseModel = provider(currentSettings.model)
+      const contextMiddleware = createContextMiddleware({
+        getContext: () => combinedSearchContext
+      })
 
-      try {
-        // Add initial evaluation step
-        const initialStepId = uuidv4()
-        setSearchSteps((prev) => [
-          ...prev,
-          {
-            id: initialStepId,
-            query: 'Evaluating existing results...',
-            status: 'thinking'
-          }
-        ])
+      const model = wrapLanguageModel({
+        model: baseModel,
+        middleware: contextMiddleware
+      })
 
-        // If in private mode, skip the agent-based search and use current results directly
-        if (isPrivate) {
-          // Existing private mode code...
-          return
-        }
-
-        // For public mode, continue with existing agent-based search logic
-        const subQueryAnswers: { query: string; answer: string }[] = []
-
-        // First evaluate existing results using breakDownQuery
-        const { queries: initialQueries, results: initialResults } = await breakDownQuery(
-          originalQuery,
-          ''
-        )
-
-        // Add initial results to accumulated results
-        if (initialResults.length > 0) {
-          allResults = [...allResults, ...initialResults]
-        }
-
-        if (initialQueries.length === 0) {
-          // We have sufficient context, proceed with generating response
-          // Rest of existing code for sufficient context...
-          return
-        }
-
-        // Continue with search process if needed
-        let keepSearching = true
-        let searchAttempts = 0
-        const MAX_SEARCH_ATTEMPTS = 3
-
-        while (keepSearching && searchAttempts < MAX_SEARCH_ATTEMPTS) {
-          searchAttempts++
-
-          // Get next search query
-          const { queries: nextQueries } = await breakDownQuery(
-            originalQuery,
-            combinedSearchContext
-          )
-
-          if (nextQueries.length === 0) {
-            // We have sufficient context
-            keepSearching = false
-            continue
+      if (!useAgent) {
+        // Skip search steps and agent processing, but still start a chat
+        try {
+          const textStream = await generateChatResponse(model, originalQuery)
+          
+          const newConversation: AIResponse = {
+            question: originalQuery,
+            answer: '',
+            timestamp: Date.now(),
+            sources: []
           }
 
-          const subQuery = nextQueries[0]
+          setConversations((prev) => [...prev, newConversation])
 
-          // Add search step
-          const searchStepId = uuidv4()
-          setSearchSteps((prev) => [
-            ...prev,
-            {
-              id: searchStepId,
-              query: subQuery,
-              status: 'searching'
-            }
-          ])
-
-          try {
-            // Use quick search for each subquery
-            const results = await trpcClient.search.quick.query(subQuery)
-            console.log('Search results for subquery:', subQuery, results)
-
-            if (!results || !Array.isArray(results) || results.length === 0) {
-              console.log('No results found for subquery:', subQuery)
-              setSearchSteps((prev) =>
-                prev.map((step) =>
-                  step.id === searchStepId
-                    ? {
-                        ...step,
-                        status: 'failed',
-                        answer: 'No results found'
-                      }
-                    : step
-                )
-              )
-              continue
-            }
-
-            // Add query context to results
-            const resultsWithContext = results.map((result) => ({
-              ...result,
-              queryContext: {
-                query: originalQuery,
-                subQueries: [
-                  ...subQueryAnswers,
-                  {
-                    query: subQuery,
-                    answer: '' // Will be filled after evaluation
-                  }
-                ]
-              }
-            }))
-
-            // Add new results to collection and update state
-            const newResults = resultsWithContext.filter((r) => r && r.text) as SearchResult[]
-            const filteredNewResults = filterOutStickyNotes(newResults)
-
-            // Update accumulated results and context
-            allResults = [...allResults, ...filteredNewResults]
-
-            setSearchResults(allResults)
-
-            // Update search step with results
-            setSearchSteps((prev) =>
-              prev.map((step) =>
-                step.id === searchStepId
+          let fullResponse = ''
+          for await (const textPart of textStream.textStream) {
+            fullResponse += textPart
+            setConversations((prev) =>
+              prev.map((conv, i) =>
+                i === prev.length - 1
                   ? {
-                      ...step,
-                      status: 'complete',
-                      results: newResults
+                      ...conv,
+                      answer: fullResponse
                     }
-                  : step
+                  : conv
               )
             )
+          }
+        } catch (error) {
+          console.error('Chat failed:', error)
+        }
+        return
+      }
 
-            // Update context and continue searching
-            subQueryAnswers.push({
-              query: subQuery,
-              answer: filteredNewResults.map((r) => r.text).join('\n')
-            })
-          } catch (error) {
-            console.error('Search error:', error)
-            keepSearching = false
+      // Agent-enabled path
+      setSearchSteps([])
+      let allResults: SearchResult[] = [...searchResults]
+      const allSources: Source[] = []
+      let subQueryContext = ''
+
+      try {
+        // Break down query and gather additional context
+        const { queries } = await breakDownQuery(originalQuery)
+        
+        // If we have additional queries, perform searches
+        if (queries.length > 0) {
+          for (const query of queries) {
+            setSearchSteps((prev) => [
+              ...prev,
+              {
+                id: uuidv4(),
+                query,
+                status: 'searching'
+              }
+            ])
+
+            const results = await trpcClient.search.quick.query(query)
+            if (results.length > 0) {
+              allResults = [...allResults, ...results]
+              setSearchResults(allResults)
+            }
+
+            setSearchSteps((prev) =>
+              prev.map((step) =>
+                step.query === query ? { ...step, status: 'complete' } : step
+              )
+            )
           }
         }
 
-        // Generate final response using all accumulated results
-        const baseModel = provider(currentSettings.model)
-        const contextMiddleware = createContextMiddleware({
-          getContext: () => combinedSearchContext // Use accumulated context
-        })
-
-        const model = wrapLanguageModel({
-          model: baseModel,
-          middleware: contextMiddleware
-        })
-
-        const textStream = await generateChatResponse(model, originalQuery, combinedSearchContext)
-
-        // Create conversation before streaming
+        // Start chat with gathered context
+        const textStream = await generateChatResponse(model, originalQuery, subQueryContext)
+        
         const newConversation: AIResponse = {
           question: originalQuery,
           answer: '',
@@ -715,57 +645,32 @@ Keep your response focused and concise.`
               i === prev.length - 1
                 ? {
                     ...conv,
-                    answer: fullResponse,
-                    sources: allSources
+                    answer: fullResponse
                   }
                 : conv
             )
           )
         }
       } catch (error) {
-        console.error('AI answer failed:', error)
-        setSearchSteps((prev) =>
-          prev.map((step) =>
-            step.status === 'thinking'
-              ? {
-                  ...step,
-                  status: 'failed',
-                  answer: 'Search process failed'
-                }
-              : step
-          )
-        )
-
-        setConversations((prev) => {
-          const hasCurrentConversation = prev.some(
-            (conv) => conv.question === originalQuery && conv.timestamp === Date.now()
-          )
-          if (!hasCurrentConversation) {
-            return [
-              ...prev,
-              {
-                question: originalQuery,
-                answer: 'Sorry, I encountered an error while generating the response.',
-                timestamp: Date.now(),
-                sources: []
-              }
-            ]
+        console.error('Agent chat failed:', error)
+        setSearchSteps((prev) => [
+          ...prev,
+          {
+            id: uuidv4(),
+            query: 'Error occurred during processing',
+            status: 'error'
           }
-          return prev
-        })
-      } finally {
-        setIsLoading(false)
+        ])
       }
     },
     [
       currentSettings,
       combinedSearchContext,
       conversations,
-      stickyNotes,
       searchResults,
-      isPrivate,
+      breakDownQuery,
       generateChatResponse,
-      breakDownQuery
+      useAgent
     ]
   )
 
@@ -1237,7 +1142,7 @@ Keep your response focused and concise.`
     }
   }
 
-  // Update handleKeyDown to handle Enter key press
+  // Update handleKeyDown to send to chat immediately when agent is disabled
   const handleKeyDown = useCallback(
     async (e: KeyboardEvent): Promise<void> => {
       if (e.key === 'Enter') {
@@ -1259,6 +1164,8 @@ Keep your response focused and concise.`
           const filteredResults = filterOutStickyNotes(quickResults)
           setSearchResults(filteredResults)
           setShowResults(true)
+          
+          // Cache results
           setSearchCache((prev) => {
             const newCache = [
               { query, results: filteredResults, timestamp: Date.now() },
@@ -1267,10 +1174,11 @@ Keep your response focused and concise.`
             return newCache
           })
 
-          // Start chat
+          // Always start chat, but skip agent processing if useAgent is false
           dispatch({ type: 'START_CHAT', payload: { query, results: filteredResults } })
           await askAIQuestion(query)
           dispatch({ type: 'CHAT_COMPLETE' })
+          
         } catch (error) {
           console.error('Search or chat failed:', error)
           dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
@@ -1373,22 +1281,8 @@ Keep your response focused and concise.`
         return
       }
     },
-    [
-      query,
-      searchState,
-      activePanel,
-      selectedIndex,
-      searchResults,
-      conversations,
-      askAIQuestion,
-      showResults,
-      stickyNotes,
-      isLoading,
-      openAlBERTFolder,
-      copyToClipboard,
-      createStickyNote,
-      clearChat
-    ]
+    [query, searchState, activePanel, selectedIndex, searchResults, conversations, 
+     askAIQuestion, showResults, stickyNotes, isLoading, useAgent, openAlBERTFolder, copyToClipboard, createStickyNote, clearChat]
   )
 
   // Keyboard Event Handler
@@ -1474,8 +1368,11 @@ Keep your response focused and concise.`
                   query={query}
                   setQuery={setQuery}
                   isLoading={isLoading}
-                  isPrivate={isPrivate}
-                  handlePrivacyToggle={setIsPrivate}
+                  useAgent={useAgent}
+                  handleAgentToggle={(checked) => {
+                    setUseAgent(checked)
+                    localStorage.setItem('use-agent', JSON.stringify(checked))
+                  }}
                   handleInputChange={handleInputChange}
                   data-highlight="search-input"
                 />

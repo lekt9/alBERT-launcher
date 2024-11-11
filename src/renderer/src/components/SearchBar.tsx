@@ -1,14 +1,14 @@
 import React, { useRef, useImperativeHandle, forwardRef } from 'react';
 import { Input } from '@/components/ui/input';
-import { Search, Loader2, Lock, LockOpen } from 'lucide-react';
+import { Search, Loader2, Lock, LockOpen, FastForwardIcon, BotIcon } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 
 interface SearchBarProps {
   query: string;
   setQuery: (query: string) => void;
   isLoading: boolean;
-  isPrivate: boolean;
-  handlePrivacyToggle: (checked: boolean) => void;
+  useAgent: boolean;
+  handleAgentToggle: (checked: boolean) => void;
   handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
@@ -19,8 +19,8 @@ export interface SearchBarRef {
 const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
   query,
   isLoading,
-  isPrivate,
-  handlePrivacyToggle,
+  useAgent,
+  handleAgentToggle,
   handleInputChange,
 }, ref) => {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,16 +47,17 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {isPrivate ? (
-              <Lock className="h-4 w-4" />
+            {useAgent ? (
+              <BotIcon className="h-4 w-4" />
             ) : (
-              <LockOpen className="h-4 w-4" />
+              <FastForwardIcon className="h-4 w-4" />
             )}
           </span>
           <Switch
-            checked={isPrivate}
-            onCheckedChange={handlePrivacyToggle}
+            checked={useAgent}
+            onCheckedChange={handleAgentToggle}
             className="data-[state=checked]:bg-primary"
+            title={useAgent ? "Agent-assisted search enabled" : "Direct search"}
           />
         </div>
         {isLoading && <Loader2 className="h-5 w-5 animate-spin ml-2" />}

@@ -28,6 +28,58 @@ const t = initTRPC.create({
 
 const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || 'BSAl9amg1Hel8m8nwWsszt-j6DuAXiZ')
 
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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'
+
+async function getPerplexityAnswer(searchTerm: string): Promise<SearchResult | null> {
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        "model": "perplexity/llama-3.1-sonar-small-128k-online",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a search engine api that provides answers to questions with as many links to sources as possible. You must include a link url in your answer"
+          },
+          {
+            "role": "user",
+            "content": searchTerm
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    const answer = data.choices?.[0]?.message?.content;
+
+    if (!answer) return null;
+
+    return {
+      text: answer,
+      metadata: {
+        path: answer.match(/\bhttps?:\/\/[^\s<>]+/)?.[0] || '',
+        title: 'AI Answer',
+        created_at: Date.now() / 1000,
+        modified_at: Date.now() / 1000,
+        filetype: 'web',
+        languages: ['en'],
+        links: [],
+        owner: null,
+        seen_at: Date.now() / 1000,
+        sourceType: 'web',
+        description: 'AI-generated answer from Perplexity'
+      }
+    };
+  } catch (error) {
+    log.error('Perplexity search failed:', error);
+    return null;
+  }
+}
+
 export const getRouter = (window: BrowserWindow) => {
   const router = t.router
 
@@ -127,21 +179,23 @@ export const getRouter = (window: BrowserWindow) => {
             return cachedResult.results;
           }
 
-          // // Start both searches in parallel but handle web search failures
-          // const [fileResults, webResults] = await Promise.all([
-          //   searchFiles(searchTerm),
-          //   quickSearchWeb(searchTerm).catch(error => {
-          //     log.error('Web search failed:', error)
-          //     return []
-          //   })
-          // ])
+          // Inside the quick search procedure, replace the commented section with:
+          const [fileResults, perplexityResult] = await Promise.all([
+            searchFiles(searchTerm),
+            getPerplexityAnswer(searchTerm).catch(error => {
+              log.error('Perplexity search failed:', error)
+              return null
+            })
+          ]);
 
-          // const combinedResults = [...fileResults, ...webResults].filter(
-          //   (result) => result.text && result.text.trim().length > 0
-          // )
-          const fileResults = await searchFiles(searchTerm)
+          const combinedResults = [
+            ...(perplexityResult ? [perplexityResult] : []),
+            ...fileResults
+          ].filter((result) => result.text && result.text.trim().length > 0);
 
-          return fileResults
+          searchCache.set(searchTerm, { timestamp: Date.now(), results: combinedResults });
+
+          return combinedResults;
         } catch (error) {
           log.error('Error performing quick search:', error)
           // If the overall search fails, try to return just file results

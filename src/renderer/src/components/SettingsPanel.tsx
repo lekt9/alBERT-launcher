@@ -61,7 +61,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               Private Mode
             </label>
             <span className="text-xs text-muted-foreground">
-              {isPrivate ? 'Using Ollama locally' : 'Using OpenAI API'}
+              {isPrivate ? 'Using local LLM' : 'Using cloud LLM'}
             </span>
           </div>
           <Switch
