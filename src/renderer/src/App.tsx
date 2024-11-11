@@ -1578,59 +1578,65 @@ Response (must be valid JSON):`
     return (
       <motion.div
         ref={noteRef}
-        drag
-        dragMomentum={false}
         style={{
           position: 'fixed',
           left: note.position.x,
           top: note.position.y,
           zIndex: 50
         }}
-        onDragEnd={(_, info) => {
-          const newPos = {
-            x: note.position.x + info.offset.x,
-            y: note.position.y + info.offset.y
-          }
-          onDrag(note.id, newPos)
-        }}
         className="group"
-        dragConstraints={{
-          left: 0,
-          right: window.innerWidth - 384, // w-96 = 384px
-          top: 0,
-          bottom: window.innerHeight - 100
-        }}
-        onFocus={() => setIsEditing(true)}
-        onBlur={() => setIsEditing(false)}
       >
         <Card className="w-96 shadow-lg bg-background/95 backdrop-blur-sm border-muted">
-          <CardHeader className="p-3 pb-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                {note.metadata.sourceType === 'web' ? (
-                  <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                )}
-                <h3 className="text-sm font-medium leading-none truncate">
-                  {note.metadata.path.split('/').pop()}
-                </h3>
+          {/* Make header draggable */}
+          <motion.div
+            drag
+            dragMomentum={false}
+            dragConstraints={{
+              left: 0,
+              right: window.innerWidth - 384, // w-96 = 384px
+              top: 0,
+              bottom: window.innerHeight - 100
+            }}
+            dragElastic={0}
+            onDragEnd={(_, info) => {
+              const newPos = {
+                x: note.position.x + info.offset.x,
+                y: note.position.y + info.offset.y
+              }
+              onDrag(note.id, newPos)
+            }}
+            className="cursor-move"
+          >
+            <CardHeader className="p-3 pb-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {note.metadata.sourceType === 'web' ? (
+                    <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <h3 className="text-sm font-medium leading-none truncate">
+                    {note.metadata.path.split('/').pop()}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => onClose(note.id)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm hover:bg-accent hover:text-accent-foreground p-1"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                onClick={() => onClose(note.id)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm hover:bg-accent hover:text-accent-foreground p-1"
+              <div
+                className="text-xs text-muted-foreground mt-1.5 hover:text-primary cursor-pointer transition-colors truncate pl-6"
+                onClick={(e) => handlePathClick(note.metadata.path, e)}
+                title={note.metadata.path}
               >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div
-              className="text-xs text-muted-foreground mt-1.5 hover:text-primary cursor-pointer transition-colors truncate pl-6"
-              onClick={(e) => handlePathClick(note.metadata.path, e)}
-              title={note.metadata.path}
-            >
-              {truncateText(note.metadata.path, 60)}
-            </div>
-          </CardHeader>
+                {truncateText(note.metadata.path, 60)}
+              </div>
+            </CardHeader>
+          </motion.div>
+
+          {/* Content section - not draggable */}
           <CardContent className="p-3 pt-0">
             <ScrollArea className="h-[300px] w-full rounded-md pr-4">
               <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0 [&_img]:max-w-full [&_img]:h-auto">
@@ -1659,16 +1665,38 @@ Response (must be valid JSON):`
               </div>
             </ScrollArea>
           </CardContent>
-          <CardFooter className="p-3 pt-2 border-t border-border/50">
-            <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-              <span>
-                Modified: {new Date(note.metadata.modified_at * 1000).toLocaleDateString()}
-              </span>
-              <span className="text-xs opacity-50 select-none">
-                {isEditing ? 'Editing...' : 'Click to edit • Drag to move'}
-              </span>
-            </div>
-          </CardFooter>
+
+          {/* Make footer draggable */}
+          <motion.div
+            drag
+            dragMomentum={false}
+            dragConstraints={{
+              left: 0,
+              right: window.innerWidth - 384,
+              top: 0,
+              bottom: window.innerHeight - 100
+            }}
+            dragElastic={0}
+            onDragEnd={(_, info) => {
+              const newPos = {
+                x: note.position.x + info.offset.x,
+                y: note.position.y + info.offset.y
+              }
+              onDrag(note.id, newPos)
+            }}
+            className="cursor-move"
+          >
+            <CardFooter className="p-3 pt-2 border-t border-border/50">
+              <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
+                <span>
+                  Modified: {new Date(note.metadata.modified_at * 1000).toLocaleDateString()}
+                </span>
+                <span className="text-xs opacity-50 select-none">
+                  {isEditing ? 'Editing...' : 'Click to edit • Drag borders to move'}
+                </span>
+              </div>
+            </CardFooter>
+          </motion.div>
         </Card>
       </motion.div>
     )

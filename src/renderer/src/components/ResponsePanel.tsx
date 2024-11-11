@@ -11,20 +11,29 @@ import { trpcClient } from '../util/trpc-client'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { cn } from '@/lib/utils'
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent
+} from '@/components/ui/accordion'
 
 interface ResponsePanelProps {
   conversations: AIResponse[]
   addAIResponseToContext: () => void
   askAIQuestion: (question: string) => Promise<void>
   isLoading: boolean
-  onDragStart: (e: React.DragEvent<HTMLDivElement>, content: { text: string; metadata: any }) => void
+  onDragStart: (
+    e: React.DragEvent<HTMLDivElement>,
+    content: { text: string; metadata: any }
+  ) => void
   onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
   onNewChat: () => void
 }
 
-const ResponsePanel: React.FC<ResponsePanelProps> = ({ 
-  conversations, 
-  addAIResponseToContext, 
+const ResponsePanel: React.FC<ResponsePanelProps> = ({
+  conversations,
+  addAIResponseToContext,
   askAIQuestion,
   isLoading,
   onDragStart,
@@ -41,7 +50,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (autoScroll && lastMessageRef.current) {
-      lastMessageRef.current.scrollIntoView({ 
+      lastMessageRef.current.scrollIntoView({
         behavior: 'smooth',
         block: 'end'
       })
@@ -97,13 +106,15 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
         </Button>
       </div>
 
-      <ScrollArea 
+      <ScrollArea
         ref={scrollAreaRef}
         className="flex-1"
         onScroll={handleScroll}
         style={{
-          maskImage: 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
-          WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
+          maskImage:
+            'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
+          WebkitMaskImage:
+            'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
         }}
       >
         <div className="px-4 py-2 space-y-6">
@@ -111,8 +122,8 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
             <Card
               key={conversation.timestamp}
               className={cn(
-                "group relative overflow-hidden transition-all duration-200",
-                index === completedConversations.length - 1 && "mb-4"
+                'group relative overflow-hidden transition-all duration-200',
+                index === completedConversations.length - 1 && 'mb-4'
               )}
               ref={index === completedConversations.length - 1 ? lastMessageRef : undefined}
               draggable="true"
@@ -127,7 +138,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                     modified_at: conversation.timestamp / 1000,
                     filetype: 'ai-response',
                     languages: ['en'],
-                    links: conversation.sources?.map(s => s.path) || [],
+                    links: conversation.sources?.map((s) => s.path) || [],
                     owner: null,
                     seen_at: Date.now() / 1000,
                     sourceType: 'ai-response',
@@ -211,42 +222,50 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                   </ReactMarkdown>
                 </div>
 
-                {/* Sources Section */}
+                {/* Sources Section with Accordion */}
                 {conversation.sources && conversation.sources.length > 0 && (
                   <div className="mt-4 pt-4 border-t">
-                    <div className="text-sm font-medium mb-2">Sources</div>
-                    <div className="grid gap-2">
-                      {conversation.sources.map((source, index) => (
-                        <Card
-                          key={index}
-                          className="p-3 hover:bg-accent/50 cursor-pointer transition-colors"
-                          onClick={() => handleSourceClick(source.path)}
-                        >
-                          <div className="flex items-start gap-2">
-                            {source.path.startsWith('http') ? (
-                              <ExternalLink className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
-                            ) : (
-                              <FileText className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate">{source.path}</div>
-                              {source.citations && source.citations.length > 0 && (
-                                <div className="mt-2 space-y-1">
-                                  {source.citations.map((citation, i) => (
-                                    <div
-                                      key={i}
-                                      className="text-xs text-muted-foreground bg-muted/50 p-2 rounded"
-                                    >
-                                      &ldquo;{citation}&rdquo;
-                                    </div>
-                                  ))}
+                    <Accordion type="single" collapsible>
+                      <AccordionItem value="sources">
+                        <AccordionTrigger className="text-sm font-medium">
+                          Sources ({conversation.sources.length})
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="grid gap-2 pt-2">
+                            {conversation.sources.map((source, index) => (
+                              <Card
+                                key={index}
+                                className="p-3 hover:bg-accent/50 cursor-pointer transition-colors"
+                                onClick={() => handleSourceClick(source.path)}
+                              >
+                                <div className="flex items-start gap-2">
+                                  {source.path.startsWith('http') ? (
+                                    <ExternalLink className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                                  ) : (
+                                    <FileText className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium truncate">{source.path}</div>
+                                    {source.citations && source.citations.length > 0 && (
+                                      <div className="mt-2 space-y-1">
+                                        {source.citations.map((citation, i) => (
+                                          <div
+                                            key={i}
+                                            className="text-xs text-muted-foreground bg-muted/50 p-2 rounded"
+                                          >
+                                            &ldquo;{citation}&rdquo;
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
+                              </Card>
+                            ))}
                           </div>
-                        </Card>
-                      ))}
-                    </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                   </div>
                 )}
               </div>
@@ -255,9 +274,9 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
         </div>
       </ScrollArea>
 
-      {/* Follow-up Question Input - Now outside ScrollArea */}
-      <form 
-        onSubmit={handleFollowUpSubmit} 
+      {/* Follow-up Question Input */}
+      <form
+        onSubmit={handleFollowUpSubmit}
         className="sticky bottom-0 bg-background/95 backdrop-blur-sm p-4 border-t shadow-lg"
       >
         <div className="flex gap-2">
