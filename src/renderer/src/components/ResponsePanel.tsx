@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Pin, FileText, ExternalLink, Send, Plus, Copy } from 'lucide-react'
+import { MessageSquare, Pin, FileText, ExternalLink, Send, Plus, Copy, Globe } from 'lucide-react'
 import { AIResponse } from '@/types'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import ReactMarkdown from 'react-markdown'
@@ -99,6 +99,14 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
     }
   }
 
+  const handleCopy = async (text: string) => {
+    await copyToClipboard(text)
+  }
+
+  const handlePin = (conv: AIResponse) => {
+    addAIResponseToContext()
+  }
+
   return (
     <div className="flex flex-col h-full">
       <ScrollArea
@@ -182,6 +190,22 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                               </SyntaxHighlighter>
                             </div>
                           )
+                        },
+                        a({ node, href, children, ...props }) {
+                          if (!href) return null
+                          return (
+                            <a
+                              {...props}
+                              href={href}
+                              className="text-primary hover:text-primary/80 cursor-pointer"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                handleSourceClick(href)
+                              }}
+                            >
+                              {children}
+                            </a>
+                          )
                         }
                       }}
                     >
@@ -251,7 +275,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
               <Input
                 ref={inputRef}
                 type="text"
-                placeholder="Ask a follow-up question..."
+                placeholder={isLoading ? "Thinking..." : "Ask a follow-up question..."}
                 value={followUpQuestion}
                 onChange={(e) => setFollowUpQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -261,16 +285,24 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                   "bg-transparent",
                   "border-0",
                   "focus:ring-0",
-                  "placeholder:text-muted-foreground/40"
+                  "placeholder:text-muted-foreground/40",
+                  isLoading && "opacity-50 cursor-not-allowed"
                 )}
               />
               <Button 
                 type="submit" 
                 size="icon"
                 disabled={isLoading || !followUpQuestion.trim()}
-                className="bg-primary/10 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30"
+                className={cn(
+                  "bg-primary/10 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30",
+                  isLoading && "opacity-50 cursor-not-allowed"
+                )}
               >
-                <Send className="h-4 w-4 text-primary dark:text-primary" />
+                {isLoading ? (
+                  <div className="animate-spin">⋯</div>
+                ) : (
+                  <Send className="h-4 w-4 text-primary dark:text-primary" />
+                )}
               </Button>
             </div>
           </div>

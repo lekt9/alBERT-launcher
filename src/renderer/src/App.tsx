@@ -199,7 +199,7 @@ function App(): JSX.Element {
       : {
           baseUrl: 'https://openrouter.ai/api/v1',
           apiKey: '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',
-          model: 'openai/gpt-4o-mini',
+          model: 'perplexity/llama-3.1-sonar-small-128k-online',
           modelType: 'openai'
         }
   })
@@ -413,7 +413,7 @@ ${combinedSearchContext}`
         messages: [
           {
             role: 'system',
-            content: `You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Provide all links that would be useful references to the answer in line. Use the words within the source as link text rather than the source name.
+            content: `You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Provide all links that would be useful references to the answer only if they were mentioned in the context. Use the words within the source as link text rather than the source name.
               
 Additional Context (sorted by relevance):
 ${combinedSearchContext}`
@@ -487,7 +487,7 @@ Answer with inline url links as citations and take account todays date: ${new Da
           {
             role: 'system',
             content:
-              'You are a search query analyzer that evaluates context completeness and generates focused search queries. Keep your responses concise. Always search for updated information and refer to the context of current queries to make sure you are searching for the most relevant information, so take account todays date: ' +
+              'You are a search query analyzer that evaluates context completeness and generates focused search queries. Keep your responses concise. Provide links only if they were mentioned in the context and only if they are relevant to the query. Always search for updated information and refer to the context of current queries to make sure you are searching for the most relevant information, so take account todays date: ' +
               new Date().toLocaleDateString() +
               `
 
