@@ -17,24 +17,25 @@ export function KeyboardShortcuts({ showDocument, activePanel }: KeyboardShortcu
           <kbd className="px-2 py-1 bg-muted rounded">↑↓</kbd>
           <span>Navigate</span>
         </div>
-        <div className="flex items-center space-x-1">
-          <kbd className="px-2 py-1 bg-muted rounded">←</kbd>
-          <span>
-            {showDocument 
-              ? 'Remove Last Document' 
-              : activePanel === 'settings'
-              ? 'Close Settings'
-              : 'Settings'}
-          </span>
-        </div>
-        <div className="flex items-center space-x-1">
-          <kbd className="px-2 py-1 bg-muted rounded">→</kbd>
-          <span>
-            {activePanel === 'settings' 
-              ? 'Close Settings' 
-              : 'Pin to Context'}
-          </span>
-        </div>
+        {activePanel === 'settings' ? (
+          <div className="flex items-center space-x-1">
+            <kbd className="px-2 py-1 bg-muted rounded">←</kbd>
+            <span>Close Settings</span>
+          </div>
+        ) : (
+          <div className="flex items-center space-x-1">
+            <kbd className="px-2 py-1 bg-muted rounded">←</kbd>
+            <span>
+              {showDocument ? 'Remove Last Document' : 'Settings'}
+            </span>
+          </div>
+        )}
+        {activePanel === 'settings' && (
+          <div className="flex items-center space-x-1">
+            <kbd className="px-2 py-1 bg-muted rounded">→</kbd>
+            <span>Close Settings</span>
+          </div>
+        )}
         <div className="flex items-center space-x-1">
           <kbd className="px-2 py-1 bg-muted rounded">Enter</kbd>
           <span>Ask Question</span>

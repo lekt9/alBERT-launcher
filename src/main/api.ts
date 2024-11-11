@@ -127,9 +127,13 @@ export const getRouter = (window: BrowserWindow) => {
             return cachedResult.results;
           }
 
+          // Start both searches in parallel but handle web search failures
           const [fileResults, webResults] = await Promise.all([
             searchFiles(searchTerm),
-            quickSearchWeb(searchTerm)
+            quickSearchWeb(searchTerm).catch(error => {
+              log.error('Web search failed:', error)
+              return []
+            })
           ])
 
           const combinedResults = [...fileResults, ...webResults].filter(
@@ -145,7 +149,14 @@ export const getRouter = (window: BrowserWindow) => {
           return combinedResults
         } catch (error) {
           log.error('Error performing quick search:', error)
-          throw error
+          // If the overall search fails, try to return just file results
+          try {
+            const fileResults = await searchFiles(searchTerm)
+            return fileResults
+          } catch (innerError) {
+            log.error('Even file search failed:', innerError)
+            throw error // If everything fails, throw the original error
+          }
         }
       }),
 
@@ -262,22 +273,31 @@ async function searchFiles(searchTerm: string): Promise<SearchResult[]> {
   return await searchDB.search(searchTerm)
 }
 
+// Update the quickSearchWeb function to handle timeouts and failures
 async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
   try {
-    const searchResults = await braveSearch.webSearch(searchTerm, {
-      count: 5,
-      search_lang: 'en',
-      country: 'US',
-      text_decorations: false
+    // Create a promise that rejects after 1 second
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Web search timeout')), 2000)
     })
+
+    // Race between the web search and the timeout
+    const searchResults = await Promise.race([
+      braveSearch.webSearch(searchTerm, {
+        count: 5,
+        search_lang: 'en',
+        country: 'US',
+        text_decorations: false
+      }),
+      timeoutPromise
+    ])
 
     if (!searchResults.web?.results) {
       return []
     }
 
-    // Return just the description/preview without fetching full content
     return searchResults.web.results.map(result => ({
-      text: result.description || result.title, // Use description as preview
+      text: result.description || result.title,
       metadata: {
         path: result.url,
         title: result.title,
@@ -293,7 +313,8 @@ async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
       }
     }))
   } catch (error) {
-    log.error('Error performing quick web search:', error)
+    // Log the error but don't throw - just return empty results
+    log.warn('Web search failed or timed out:', error)
     return []
   }
 }

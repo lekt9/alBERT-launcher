@@ -177,7 +177,7 @@ function App(): JSX.Element {
       : {
           baseUrl: 'http://localhost:11434/v1',
           apiKey: '',
-          model: 'llama3.2:1b',
+          model: 'llama3.2:3b',
           modelType: 'ollama'
         }
   })
@@ -371,11 +371,29 @@ function App(): JSX.Element {
       originalQuery: string,
       subQueryContext: string = ''
     ): Promise<{ textStream: AsyncIterable<string> }> => {
+      // If in private mode, skip the agent-based search and use current context directly
+      if (isPrivate) {
+        return streamText({
+          model,
+          prompt: `Use the following context to answer the question. Use markdown formatting to create a well formatted response. If the context doesn't contain relevant information, say so.
+
+When citing sources, use markdown links in your response like this: [relevant text](link to file or url).
+
+Context:
+${combinedSearchContext}
+
+Question: ${originalQuery}
+
+Answer with inline citations:`
+        })
+      }
+
+      // For public mode, keep the existing agent-based approach
       return streamText({
         model,
         prompt: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. If the context doesn't contain relevant information, say so.
 
-When citing sources, use markdown links in your response like this: [relevant text](<realpath/to/source>). Make sure to cite your sources inline without fake links, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
+When citing sources, use markdown links in your response like this: [relevant text](link to file or url). Make sure to cite your sources inline without fake links, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
 
 Context (sorted by relevance):
 ${combinedSearchContext}
@@ -394,7 +412,7 @@ Question: ${originalQuery}
 Answer with inline citations:`
       })
     },
-    [combinedSearchContext, conversations]
+    [combinedSearchContext, conversations, isPrivate]
   )
 
   // Add to your state definitions
@@ -685,13 +703,11 @@ Response (must be valid JSON):`
     }
   }
 
-  // Update the askAIQuestion function to better handle evaluation steps
+  // Update the askAIQuestion function to handle private mode differently
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
       setSearchSteps([])
       let allResults: SearchResult[] = [...searchResults] // Start with existing results
-      const subQueryAnswers: { query: string; answer: string }[] = []
-      let currentContext = ''
       let allSources: Source[] = []
 
       try {
@@ -705,6 +721,63 @@ Response (must be valid JSON):`
             status: 'thinking'
           }
         ])
+
+        // If in private mode, skip the agent-based search and use current results directly
+        if (isPrivate) {
+          // Update step to complete
+          setSearchSteps((prev) =>
+            prev.map((step) =>
+              step.id === initialStepId
+                ? {
+                    ...step,
+                    status: 'complete',
+                    query: 'Using local context',
+                    answer: 'Processing with private model...'
+                  }
+                : step
+            )
+          )
+
+          // Use existing results for sources
+          allSources = await fetchSources(allResults)
+
+          const baseModel = provider(currentSettings.model)
+          const textStream = await generateChatResponse(baseModel, originalQuery)
+
+          // Create and update conversation
+          const newConversation: AIResponse = {
+            question: originalQuery,
+            answer: '',
+            timestamp: Date.now(),
+            sources: allSources
+          }
+
+          setConversations((prev) => [...prev, newConversation])
+
+          let fullResponse = ''
+          for await (const textPart of textStream.textStream) {
+            fullResponse += textPart
+            // Update conversation with streaming response
+            setConversations((prev) =>
+              prev.map((conv, i) =>
+                i === prev.length - 1
+                  ? {
+                      ...conv,
+                      answer: fullResponse,
+                      sources: allSources
+                    }
+                  : conv
+              )
+            )
+          }
+
+          setIsLoading(false)
+          return
+        }
+
+        // For public mode, continue with existing agent-based search logic
+        const subQueryAnswers: { query: string; answer: string }[] = []
+        let currentContext = ''
 
         // First evaluate existing results
         if (allResults.length > 0) {
@@ -1142,7 +1215,6 @@ Response (must be valid JSON):`
         }
       } catch (error) {
         console.error('AI answer failed:', error)
-        // Update any thinking steps to failed
         setSearchSteps((prev) =>
           prev.map((step) =>
             step.status === 'thinking'
@@ -1155,7 +1227,6 @@ Response (must be valid JSON):`
           )
         )
         
-        // Only add error conversation if we haven't already added a conversation
         setConversations((prev) => {
           const hasCurrentConversation = prev.some(
             (conv) => conv.question === originalQuery && conv.timestamp === Date.now()
@@ -1177,7 +1248,7 @@ Response (must be valid JSON):`
         setIsLoading(false)
       }
     },
-    [currentSettings, combinedSearchContext, conversations, stickyNotes, searchResults]
+    [currentSettings, combinedSearchContext, conversations, stickyNotes, searchResults, isPrivate, fetchSources, generateChatResponse]
   )
 
   // Add state machine
@@ -1668,14 +1739,6 @@ Response (must be valid JSON):`
           setActivePanel('response')
           return
         }
-
-        if (selectedIndex >= 0 && searchResults[selectedIndex]) {
-          const result = searchResults[selectedIndex]
-          createStickyNote(result, {
-            x: window.innerWidth / 2 - 200,
-            y: window.innerHeight / 2 - 200
-          })
-        }
         return
       }
 
@@ -1686,14 +1749,18 @@ Response (must be valid JSON):`
         return
       }
 
-      // Handle Cmd/Ctrl + C to copy
+      // Handle Cmd/Ctrl + C to copy only when there are search results
       if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
-        e.preventDefault()
-        if (selectedIndex >= 0 && searchResults[selectedIndex]) {
-          await copyToClipboard(searchResults[selectedIndex].text, true, true)
-        } else if (searchResults.length > 0) {
-          await copyToClipboard(searchResults.map(r => r.text).join('\n\n'), true, true)
+        // Only prevent default and handle copy if we have search results
+        if (searchResults.length > 0) {
+          e.preventDefault()
+          if (selectedIndex >= 0 && searchResults[selectedIndex]) {
+            await copyToClipboard(searchResults[selectedIndex].text, true, true)
+          } else {
+            await copyToClipboard(searchResults.map(r => r.text).join('\n\n'), true, true)
+          }
         }
+        // If no search results, let the system handle the copy command
         return
       }
 
