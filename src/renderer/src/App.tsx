@@ -371,12 +371,12 @@ function App(): JSX.Element {
     ): Promise<{ textStream: AsyncIterable<string> }> => {
       // Get last 4 conversation messages
       const recentConversations = conversations
-        .slice(-4)
         .map((conv) => [
           { role: 'user' as const, content: conv.question },
           { role: 'assistant' as const, content: conv.answer }
         ])
         .flat()
+        .slice(-4)
 
       // If in private mode, skip the agent-based search and use current context directly
       if (isPrivate) {
@@ -388,7 +388,7 @@ function App(): JSX.Element {
               content:
                 'You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [relevant text](link to file or url). Do not leave placeholder comments or images inside the response.'
             },
-            ...recentConversations,
+            ...recentConversations.filter((conv) => conv.role !== 'system'),
             {
               role: 'user',
               content: `Use the following context to answer the question. Use markdown formatting to create a well formatted response. If the context doesn't contain relevant information, say so.
@@ -415,7 +415,7 @@ Answer with inline citations:`
             content:
               'You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Use the words within the source as link text rather than the source name.'
           },
-          ...recentConversations,
+          ...recentConversations.filter((conv) => conv.role !== 'system'),
           {
             role: 'user',
             content: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. If the context doesn't contain relevant information, say so.
@@ -467,7 +467,7 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
     console.log('Recent conversations:', recentConversations.length, 'messages')
 
     const model = wrapLanguageModel({
-      model: provider('meta-llama/llama-3.2-11b-vision-instruct'),
+      model: provider('openai/gpt-4o-mini'),
       middleware: contextMiddleware
     })
 
@@ -596,7 +596,6 @@ Keep your response focused and concise.`
       setSearchSteps([])
       let allResults: SearchResult[] = [...searchResults] // Start with existing results
       let allSources: Source[] = []
-      let accumulatedContext = ''
 
       try {
         // Add initial evaluation step
@@ -645,7 +644,10 @@ Keep your response focused and concise.`
           searchAttempts++
 
           // Get next search query
-          const { queries: nextQueries } = await breakDownQuery(originalQuery, accumulatedContext)
+          const { queries: nextQueries } = await breakDownQuery(
+            originalQuery,
+            combinedSearchContext
+          )
 
           if (nextQueries.length === 0) {
             // We have sufficient context
@@ -708,9 +710,8 @@ Keep your response focused and concise.`
 
             // Update accumulated results and context
             allResults = [...allResults, ...filteredNewResults]
-            accumulatedContext = allResults
-              .map((result) => `From ${result.metadata.path}:\n${result.text}`)
-              .join('\n\n')
+
+            setSearchResults(allResults)
 
             // Fetch sources for new results
             const newSources = await fetchSources(filteredNewResults)
@@ -734,10 +735,6 @@ Keep your response focused and concise.`
               query: subQuery,
               answer: filteredNewResults.map((r) => r.text).join('\n')
             })
-
-            accumulatedContext = subQueryAnswers
-              .map((sqa) => `Q: ${sqa.query}\nA: ${sqa.answer}`)
-              .join('\n\n')
           } catch (error) {
             console.error('Search error:', error)
             keepSearching = false
@@ -747,7 +744,7 @@ Keep your response focused and concise.`
         // Generate final response using all accumulated results
         const baseModel = provider(currentSettings.model)
         const contextMiddleware = createContextMiddleware({
-          getContext: () => accumulatedContext // Use accumulated context
+          getContext: () => combinedSearchContext // Use accumulated context
         })
 
         const model = wrapLanguageModel({
@@ -755,7 +752,7 @@ Keep your response focused and concise.`
           middleware: contextMiddleware
         })
 
-        const textStream = await generateChatResponse(model, originalQuery, accumulatedContext)
+        const textStream = await generateChatResponse(model, originalQuery, combinedSearchContext)
 
         // Create conversation before streaming
         const newConversation: AIResponse = {
