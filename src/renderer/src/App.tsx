@@ -5,7 +5,8 @@ import React, {
   useMemo,
   Suspense,
   useRef,
-  useReducer
+  useReducer,
+  Context
 } from 'react'
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { getContextSimilarityScores, trpcClient } from './util/trpc-client'
@@ -385,18 +386,17 @@ function App(): JSX.Element {
           messages: [
             {
               role: 'system',
-              content:
-                'You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [quote](link to file or url). Do not leave placeholder comments or images inside the response.'
+              content: `You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [quote](link to file or url). Do not leave placeholder comments or images inside the response.
+                
+Additional Context (sorted by relevance):
+Context:
+${combinedSearchContext}
+`
             },
             ...recentConversations.filter((conv) => conv.role !== 'system'),
             {
               role: 'user',
               content: `Use the following context to answer the question. Use markdown formatting to create a well formatted response. If the context doesn't contain relevant information, say so.
-
-When citing sources, use markdown links in your response like this: [relevant text](link to file or url).
-
-Context:
-${combinedSearchContext}
 
 Question: ${originalQuery}
 
@@ -414,18 +414,15 @@ Answer with inline url links as citations:`
         messages: [
           {
             role: 'system',
-            content:
-              'You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Use the words within the source as link text rather than the source name.'
+            content: `You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Provide all links that would be useful references to the answer in line. Use the words within the source as link text rather than the source name.
+              
+Additional Context (sorted by relevance):
+${combinedSearchContext}`
           },
           ...recentConversations.filter((conv) => conv.role !== 'system'),
           {
             role: 'user',
-            content: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. If the context doesn't contain relevant information, say so.
-
-When citing sources, use markdown links in your response like this: [quote](link to file or url). Make sure to cite your sources inline without fake links, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
-
-Context (sorted by relevance):
-${combinedSearchContext}
+            content: `Use the following context and you knowledge to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. 
 
 ${subQueryContext ? `\nReasoning steps:\n${subQueryContext}` : ''}
 
@@ -469,7 +466,7 @@ Answer with inline url links as citations and take account todays date: ${new Da
     console.log('Recent conversations:', recentConversations.length, 'messages')
 
     const model = wrapLanguageModel({
-      model: provider('meta-llama/llama-3.2-1b-instruct'),
+      model: provider('openai/gpt-3.5-turbo-instruct'),
       middleware: contextMiddleware
     })
 
@@ -479,10 +476,12 @@ Answer with inline url links as citations and take account todays date: ${new Da
         model,
         mode: 'json',
         schema: z.object({
-          hasAnswer: z
-            .boolean()
-            .describe('Whether the current context is sufficient to answer the query'),
-          suggestedQuery: z.string().describe(`An attempt to come up with an accurate information to add to the context - be as descriptive as possible`)
+          // hasAnswer: z
+          //   .boolean()
+          //   .describe('Whether the current context is sufficient to answer the query - be lenient'),
+          suggestedQuery: z
+            .string()
+            .describe(`A search query of one sentence to describe the context you need.`)
         }),
         messages: [
           {
@@ -518,6 +517,10 @@ Keep your response focused and concise.`
       console.log('Evaluation result:', JSON.stringify(object, null, 2))
 
       // Return both the query and empty results array if we have sufficient context
+      if (true) {
+        return { queries: [], results: [] }
+      }
+      // Return both the query and empty results array if we have sufficient context
       if (object.hasAnswer) {
         return { queries: [], results: [] }
       }
@@ -534,13 +537,12 @@ Keep your response focused and concise.`
     }
   }
 
-
   // Update askAIQuestion to properly handle and accumulate search results
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
       setSearchSteps([])
       let allResults: SearchResult[] = [...searchResults] // Start with existing results
-      let allSources: Source[] = []
+      const allSources: Source[] = []
 
       try {
         // Add initial evaluation step
