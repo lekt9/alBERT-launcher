@@ -278,7 +278,7 @@ function App(): JSX.Element {
 
   // Update combinedSearchContext to be synchronous
   const combinedSearchContext = useMemo(() => {
-    const MAX_CONTEXT_LENGTH = 100000
+    const MAX_CONTEXT_LENGTH = 50000
     let context = ''
 
     try {
@@ -451,11 +451,8 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
       searchResultsCount: searchResults.length
     })
 
-    const fullContext = [existingContext, combinedSearchContext].filter(Boolean).join('\n\n')
-    console.log('Combined context length:', fullContext.length)
-
     const contextMiddleware = createContextMiddleware({
-      getContext: () => fullContext
+      getContext: () => combinedSearchContext
     })
 
     // Get last 4 conversation messages
@@ -490,17 +487,18 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
             role: 'system',
             content:
               'You are a search query analyzer that evaluates context completeness and generates focused search queries. Keep your responses concise. Always search for updated information and refer to the context of current queries to make sure you are searching for the most relevant information, so take account todays date: ' +
-              new Date().toLocaleDateString()
+              new Date().toLocaleDateString() +
+              `
+
+Current Context:
+${combinedSearchContext}`
           },
-          ...recentConversations,
+          ...recentConversations.filter((conv) => conv.role !== 'system'),
           {
             role: 'user',
             content: `Evaluate if we have sufficient information to answer this query and determine what additional information might be needed.
 
 Main Query: ${query}
-
-Current Context (truncated):
-${fullContext}
 
 Instructions:
 1. Analyze the main query and break it down into key aspects
