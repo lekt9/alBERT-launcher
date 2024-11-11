@@ -127,26 +127,21 @@ export const getRouter = (window: BrowserWindow) => {
             return cachedResult.results;
           }
 
-          // Start both searches in parallel but handle web search failures
-          const [fileResults, webResults] = await Promise.all([
-            searchFiles(searchTerm),
-            quickSearchWeb(searchTerm).catch(error => {
-              log.error('Web search failed:', error)
-              return []
-            })
-          ])
+          // // Start both searches in parallel but handle web search failures
+          // const [fileResults, webResults] = await Promise.all([
+          //   searchFiles(searchTerm),
+          //   quickSearchWeb(searchTerm).catch(error => {
+          //     log.error('Web search failed:', error)
+          //     return []
+          //   })
+          // ])
 
-          const combinedResults = [...fileResults, ...webResults].filter(
-            (result) => result.text && result.text.trim().length > 0
-          )
+          // const combinedResults = [...fileResults, ...webResults].filter(
+          //   (result) => result.text && result.text.trim().length > 0
+          // )
+          const fileResults = await searchFiles(searchTerm)
 
-          // Cache the results
-          searchCache.set(searchTerm, {
-            timestamp: Date.now(),
-            results: combinedResults
-          });
-
-          return combinedResults
+          return fileResults
         } catch (error) {
           log.error('Error performing quick search:', error)
           // If the overall search fails, try to return just file results

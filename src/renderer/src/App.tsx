@@ -191,7 +191,7 @@ function App(): JSX.Element {
       : {
           baseUrl: 'https://openrouter.ai/api/v1',
           apiKey: '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',
-          model: 'openai/gpt-4o-mini',
+          model: 'perplexity/llama-3.1-sonar-large-128k-online',
           modelType: 'openai'
         }
   })
@@ -386,7 +386,7 @@ function App(): JSX.Element {
             {
               role: 'system',
               content:
-                'You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [relevant text](link to file or url). Do not leave placeholder comments or images inside the response.'
+                'You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [quote](link to file or url). Do not leave placeholder comments or images inside the response.'
             },
             ...recentConversations.filter((conv) => conv.role !== 'system'),
             {
@@ -400,7 +400,9 @@ ${combinedSearchContext}
 
 Question: ${originalQuery}
 
-Answer with inline citations:`
+You MUST provide the urls for everything that relied on external information in the url link citations.
+
+Answer with inline url links as citations:`
             }
           ]
         })
@@ -420,7 +422,7 @@ Answer with inline citations:`
             role: 'user',
             content: `Use the following context to answer the question. Use markdown formatting to create a well formatted response using visual aids such as headings and images and tables from the context to answer the question as well and informative as possible. If the context doesn't contain relevant information, say so.
 
-When citing sources, use markdown links in your response like this: [relevant text](link to file or url). Make sure to cite your sources inline without fake links, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
+When citing sources, use markdown links in your response like this: [quote](link to file or url). Make sure to cite your sources inline without fake links, using markdown links as you use them. Instead of using the source name as the link text, use the words within the source that are relevant to quote it inside the [].
 
 Context (sorted by relevance):
 ${combinedSearchContext}
@@ -429,7 +431,7 @@ ${subQueryContext ? `\nReasoning steps:\n${subQueryContext}` : ''}
 
 Question: ${originalQuery}
 
-Answer with inline citations and take account todays date: ${new Date().toLocaleDateString()}`
+Answer with inline url links as citations and take account todays date: ${new Date().toLocaleDateString()}`
           }
         ]
       })
@@ -467,7 +469,7 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
     console.log('Recent conversations:', recentConversations.length, 'messages')
 
     const model = wrapLanguageModel({
-      model: provider('openai/gpt-4o-mini'),
+      model: provider('meta-llama/llama-3.2-1b-instruct'),
       middleware: contextMiddleware
     })
 
@@ -480,7 +482,7 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
           hasAnswer: z
             .boolean()
             .describe('Whether the current context is sufficient to answer the query'),
-          suggestedQuery: z.string().describe(`A specific search query to find missing information`)
+          suggestedQuery: z.string().describe(`An attempt to come up with an accurate information to add to the context - be as descriptive as possible`)
         }),
         messages: [
           {
@@ -501,9 +503,9 @@ ${combinedSearchContext}`
 Main Query: ${query}
 
 Instructions:
-1. Analyze the main query and break it down into key aspects
+1. Analyze the main query and break it down into different pieces of context that is useful to answer the query
 2. Evaluate the current context against these aspects
-3. If more information is needed, provide a specific search query - do not include dates in the query
+3. If more information is needed, provide a specific search query
 
 Consider the chat history above when determining if we have sufficient context.
 Your search queries must be specific and use updated information taking account todays date: ${new Date().toLocaleDateString()}.
@@ -532,63 +534,6 @@ Keep your response focused and concise.`
     }
   }
 
-  // Update the fetchSources function to handle lazy content loading
-  const fetchSources = async (results: SearchResult[]): Promise<Source[]> => {
-    try {
-      // Get unique paths from search results
-      const paths = [...new Set(results.map((r) => r.metadata.path))]
-      const sources: Source[] = []
-
-      // Create initial sources with preview text
-      for (const path of paths) {
-        const result = results.find((r) => r.metadata.path === path)
-        if (result) {
-          sources.push({
-            path,
-            preview: truncateText(result.text, 200),
-            citations: [],
-            description: result.text // Use initial text as description
-          })
-        }
-      }
-
-      // Update conversations with initial sources
-      setConversations((prev) =>
-        prev.map((conv, i) => (i === prev.length - 1 ? { ...conv, sources } : conv))
-      )
-
-      // Fetch full content for each source in the background
-      paths.forEach(async (path) => {
-        try {
-          const response = await trpcClient.content.fetch.query(path)
-          if (response.content) {
-            // Update sources with full content
-            const updatedSource = {
-              path,
-              preview: truncateText(response.content, 200),
-              citations: [],
-              description: response.content
-            }
-
-            // Update conversations with the new source content
-            setConversations((prev) =>
-              prev.map((conv) => ({
-                ...conv,
-                sources: conv.sources?.map((s) => (s.path === path ? updatedSource : s)) || []
-              }))
-            )
-          }
-        } catch (error) {
-          console.error(`Error fetching content for ${path}:`, error)
-        }
-      })
-
-      return sources
-    } catch (error) {
-      console.error('Error fetching sources:', error)
-      return []
-    }
-  }
 
   // Update askAIQuestion to properly handle and accumulate search results
   const askAIQuestion = useCallback(
@@ -713,10 +658,6 @@ Keep your response focused and concise.`
 
             setSearchResults(allResults)
 
-            // Fetch sources for new results
-            const newSources = await fetchSources(filteredNewResults)
-            allSources = [...allSources, ...newSources]
-
             // Update search step with results
             setSearchSteps((prev) =>
               prev.map((step) =>
@@ -821,7 +762,6 @@ Keep your response focused and concise.`
       stickyNotes,
       searchResults,
       isPrivate,
-      fetchSources,
       generateChatResponse,
       breakDownQuery
     ]
