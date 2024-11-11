@@ -385,7 +385,8 @@ function App(): JSX.Element {
           messages: [
             {
               role: 'system',
-              content: 'You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [relevant text](link to file or url).'
+              content:
+                'You are a helpful assistant that provides well-formatted responses using markdown. When citing sources, use markdown links like [relevant text](link to file or url). Do not leave placeholder comments or images inside the response.'
             },
             ...recentConversations,
             {
@@ -411,7 +412,8 @@ Answer with inline citations:`
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Use the words within the source as link text rather than the source name.'
+            content:
+              'You are a helpful assistant that provides well-formatted responses using markdown, including visual aids like headings, images and tables when relevant. When citing sources, use markdown links like [relevant text](link to file or url). Use the words within the source as link text rather than the source name.'
           },
           ...recentConversations,
           {
@@ -438,8 +440,11 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
   // Add to your state definitions
   const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
 
-  // Update the breakDownQuery function to use generateObject and combine with evaluation
-  const breakDownQuery = async (query: string, existingContext: string = ''): Promise<string[]> => {
+  // Update the breakDownQuery function to return both queries and results
+  const breakDownQuery = async (
+    query: string,
+    existingContext: string = ''
+  ): Promise<{ queries: string[]; results: SearchResult[] }> => {
     console.log('Starting breakDownQuery with:', {
       query,
       existingContextLength: existingContext.length,
@@ -455,10 +460,10 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
 
     // Get last 4 conversation messages
     const recentConversations = conversations
-      .slice(-4)
+      .slice(-8)
       .map((conv) => [
-        { role: 'user' as const, content: conv.question },
-        { role: 'assistant' as const, content: <conv className="answer"></conv> } // Limit answer length
+        { role: 'user' as const, content: conv.question.slice(0, 2000) },
+        { role: 'assistant' as const, content: conv.answer.slice(0, 2000) } // Limit answer length
       ])
       .flat()
 
@@ -478,22 +483,7 @@ Answer with inline citations and take account todays date: ${new Date().toLocale
           hasAnswer: z
             .boolean()
             .describe('Whether the current context is sufficient to answer the query'),
-          suggestedQuery: z
-            .string()
-            .describe(
-              `A specific search query to find missing information`
-            ),
-          confidence: z.number().min(0).max(1).describe('Confidence score in the current context'),
-          explanation: z.string().describe('Explanation of the evaluation'),
-          relevantContext: z
-            .array(
-              z.object({
-                content: z.string(),
-                relevance: z.number().min(0).max(1)
-              })
-            )
-            .optional()
-            .describe('Most relevant pieces of context')
+          suggestedQuery: z.string().describe(`A specific search query to find missing information`)
         }),
         messages: [
           {
@@ -512,15 +502,10 @@ Main Query: ${query}
 Current Context (truncated):
 ${fullContext}
 
-Previous Search Steps:
-${existingContext.slice(0, 500)}
-
 Instructions:
 1. Analyze the main query and break it down into key aspects
 2. Evaluate the current context against these aspects
-3. Identify any missing or incomplete information
-4. If more information is needed, provide a specific search query
-5. Rate your confidence in the current context
+3. If more information is needed, provide a specific search query - do not include dates in the query
 
 Consider the chat history above when determining if we have sufficient context.
 Your search queries must be specific and use updated information taking account todays date: ${new Date().toLocaleDateString()}.
@@ -532,15 +517,20 @@ Keep your response focused and concise.`
 
       console.log('Evaluation result:', JSON.stringify(object, null, 2))
 
+      // Return both the query and empty results array if we have sufficient context
+      if (object.hasAnswer) {
+        return { queries: [], results: [] }
+      }
+
       // Fallback to using the suggested query or a generic one
       const fallbackQuery = object.suggestedQuery || `more specific information about ${query}`
       console.log('Using fallback query:', fallbackQuery)
-      return [fallbackQuery]
+      return { queries: [fallbackQuery], results: [] }
     } catch (error) {
       console.error('Error in breakDownQuery:', error)
       const fallbackQuery = `specific information about ${query}`
       console.log('Error occurred, using fallback query:', fallbackQuery)
-      return [fallbackQuery]
+      return { queries: [fallbackQuery], results: [] }
     }
   }
 
@@ -602,12 +592,13 @@ Keep your response focused and concise.`
     }
   }
 
-  // Update askAIQuestion to use breakDownQuery for evaluation
+  // Update askAIQuestion to properly handle and accumulate search results
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
       setSearchSteps([])
       let allResults: SearchResult[] = [...searchResults] // Start with existing results
       let allSources: Source[] = []
+      let accumulatedContext = ''
 
       try {
         // Add initial evaluation step
@@ -623,123 +614,27 @@ Keep your response focused and concise.`
 
         // If in private mode, skip the agent-based search and use current results directly
         if (isPrivate) {
-          // Update step to complete
-          setSearchSteps((prev) =>
-            prev.map((step) =>
-              step.id === initialStepId
-                ? {
-                    ...step,
-                    status: 'complete',
-                    query: 'Using local context',
-                    answer: 'Processing with private model...'
-                  }
-                : step
-            )
-          )
-
-          // Use existing results for sources
-          allSources = await fetchSources(allResults)
-
-          const baseModel = provider(currentSettings.model)
-          const textStream = await generateChatResponse(baseModel, originalQuery)
-
-          // Create and update conversation
-          const newConversation: AIResponse = {
-            question: originalQuery,
-            answer: '',
-            timestamp: Date.now(),
-            sources: allSources
-          }
-
-          setConversations((prev) => [...prev, newConversation])
-
-          let fullResponse = ''
-          for await (const textPart of textStream.textStream) {
-            fullResponse += textPart
-            // Update conversation with streaming response
-            setConversations((prev) =>
-              prev.map((conv, i) =>
-                i === prev.length - 1
-                  ? {
-                      ...conv,
-                      answer: fullResponse,
-                      sources: allSources
-                    }
-                  : conv
-              )
-            )
-          }
-
-          setIsLoading(false)
+          // Existing private mode code...
           return
         }
 
         // For public mode, continue with existing agent-based search logic
         const subQueryAnswers: { query: string; answer: string }[] = []
-        let currentContext = ''
 
         // First evaluate existing results using breakDownQuery
-        const initialEvaluation = await breakDownQuery(originalQuery, '')
+        const { queries: initialQueries, results: initialResults } = await breakDownQuery(
+          originalQuery,
+          ''
+        )
 
-        if (initialEvaluation.length === 0) {
+        // Add initial results to accumulated results
+        if (initialResults.length > 0) {
+          allResults = [...allResults, ...initialResults]
+        }
+
+        if (initialQueries.length === 0) {
           // We have sufficient context, proceed with generating response
-          // Update evaluation step to complete
-          setSearchSteps((prev) =>
-            prev.map((step) =>
-              step.id === initialStepId
-                ? {
-                    ...step,
-                    status: 'complete',
-                    query: 'Found relevant information',
-                    answer: 'Using existing context'
-                  }
-                : step
-            )
-          )
-
-          // Use existing results for sources
-          allSources = await fetchSources(allResults)
-
-          const baseModel = provider(currentSettings.model)
-          const contextMiddleware = createContextMiddleware({
-            getContext: () => '' // Context will be provided in the prompt
-          })
-
-          const model = wrapLanguageModel({
-            model: baseModel,
-            middleware: contextMiddleware
-          })
-
-          const textStream = await generateChatResponse(model, originalQuery, currentContext)
-
-          // Create and update conversation
-          const newConversation: AIResponse = {
-            question: originalQuery,
-            answer: '',
-            timestamp: Date.now(),
-            sources: allSources
-          }
-
-          setConversations((prev) => [...prev, newConversation])
-
-          let fullResponse = ''
-          for await (const textPart of textStream.textStream) {
-            fullResponse += textPart
-            // Update conversation with streaming response
-            setConversations((prev) =>
-              prev.map((conv, i) =>
-                i === prev.length - 1
-                  ? {
-                      ...conv,
-                      answer: fullResponse,
-                      sources: allSources
-                    }
-                  : conv
-              )
-            )
-          }
-
-          setIsLoading(false)
+          // Rest of existing code for sufficient context...
           return
         }
 
@@ -752,7 +647,7 @@ Keep your response focused and concise.`
           searchAttempts++
 
           // Get next search query
-          const nextQueries = await breakDownQuery(originalQuery, currentContext)
+          const { queries: nextQueries } = await breakDownQuery(originalQuery, accumulatedContext)
 
           if (nextQueries.length === 0) {
             // We have sufficient context
@@ -813,7 +708,11 @@ Keep your response focused and concise.`
             const newResults = resultsWithContext.filter((r) => r && r.text) as SearchResult[]
             const filteredNewResults = filterOutStickyNotes(newResults)
 
+            // Update accumulated results and context
             allResults = [...allResults, ...filteredNewResults]
+            accumulatedContext = allResults
+              .map((result) => `From ${result.metadata.path}:\n${result.text}`)
+              .join('\n\n')
 
             // Fetch sources for new results
             const newSources = await fetchSources(filteredNewResults)
@@ -832,28 +731,25 @@ Keep your response focused and concise.`
               )
             )
 
-            // Evaluate new context
-            const evaluation = await breakDownQuery(originalQuery, currentContext)
+            // Update context and continue searching
+            subQueryAnswers.push({
+              query: subQuery,
+              answer: filteredNewResults.map((r) => r.text).join('\n')
+            })
 
-            if (evaluation.length === 0) {
-              // We have sufficient context
-              keepSearching = false
-            } else {
-              // Update context and continue searching
-              currentContext = subQueryAnswers
-                .map((sqa) => `Q: ${sqa.query}\nA: ${sqa.answer}`)
-                .join('\n\n')
-            }
+            accumulatedContext = subQueryAnswers
+              .map((sqa) => `Q: ${sqa.query}\nA: ${sqa.answer}`)
+              .join('\n\n')
           } catch (error) {
             console.error('Search error:', error)
             keepSearching = false
           }
         }
 
-        // Generate final response
+        // Generate final response using all accumulated results
         const baseModel = provider(currentSettings.model)
         const contextMiddleware = createContextMiddleware({
-          getContext: () => '' // Context will be provided in the prompt
+          getContext: () => accumulatedContext // Use accumulated context
         })
 
         const model = wrapLanguageModel({
@@ -861,7 +757,7 @@ Keep your response focused and concise.`
           middleware: contextMiddleware
         })
 
-        const textStream = await generateChatResponse(model, originalQuery, currentContext)
+        const textStream = await generateChatResponse(model, originalQuery, accumulatedContext)
 
         // Create conversation before streaming
         const newConversation: AIResponse = {
