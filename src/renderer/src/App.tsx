@@ -582,7 +582,7 @@ If there IS enough information, provide a very concise answer under 500 characte
   "answer": "your answer here"
 }
 
-Be EXTREMELY lenient about this. If you find ANY relevant information that helps answer the query, consider it SUFFICIENT.
+Be strict about this. If you find ANY relevant information that helps answer the query, consider it SUFFICIENT.
 
 Search Results:
 ${context}

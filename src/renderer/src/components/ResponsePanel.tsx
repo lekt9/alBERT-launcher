@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Pin, FileText, ExternalLink, Send, Plus } from 'lucide-react'
+import { MessageSquare, Pin, FileText, ExternalLink, Send, Plus, Copy } from 'lucide-react'
 import { AIResponse } from '@/types'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import ReactMarkdown from 'react-markdown'
@@ -75,6 +75,14 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation()
+  }
+
+  const copyToClipboard = async (text: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (error) {
+      console.error('Failed to copy text:', error)
+    }
   }
 
   if (!completedConversations.length) return null
@@ -179,7 +187,16 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
               </div>
 
               {/* Content Section */}
-              <div className="p-4">
+              <div className="p-4 relative">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 opacity-50 hover:opacity-100"
+                  onClick={() => copyToClipboard(conversation.answer)}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+                
                 {/* Answer with enhanced markdown */}
                 <div className="prose prose-sm dark:prose-invert max-w-none">
                   <ReactMarkdown
@@ -193,14 +210,24 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
                       code: ({ inline, className, children, ...props }) => {
                         const match = /language-(\w+)/.exec(className || '')
                         return !inline && match ? (
-                          <SyntaxHighlighter
-                            style={vscDarkPlus}
-                            language={match[1]}
-                            PreTag="div"
-                            {...props}
-                          >
-                            {String(children).replace(/\n$/, '')}
-                          </SyntaxHighlighter>
+                          <div className="relative">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="absolute right-2 top-2 h-8 w-8 opacity-50 hover:opacity-100"
+                              onClick={() => copyToClipboard(String(children))}
+                            >
+                              <Copy className="h-4 w-4 text-primary" />
+                            </Button>
+                            <SyntaxHighlighter
+                              style={vscDarkPlus}
+                              language={match[1]}
+                              PreTag="div"
+                              {...props}
+                            >
+                              {String(children).replace(/\n$/, '')}
+                            </SyntaxHighlighter>
+                          </div>
                         ) : (
                           <code className={className} {...props}>
                             {children}
