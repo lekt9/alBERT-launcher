@@ -47,6 +47,7 @@ import '@mdxeditor/editor/style.css'
 import { Onboarding } from '@/components/Onboarding'
 import { generateObject } from 'ai'
 import { z } from 'zod'
+import { ThemeProvider } from '@/lib/theme-provider'
 
 interface SearchResult {
   text: string
@@ -1009,14 +1010,15 @@ Keep your response focused and concise.`
         }}
         className="group"
       >
-        <Card className="w-96 shadow-lg bg-background/95 backdrop-blur-sm border-muted">
-          {/* Make header draggable */}
+        <div className="absolute inset-0 bg-white/20 dark:bg-slate-900/20 blur-xl rounded-[2rem]" />
+        <Card className="relative w-96 bg-gradient-to-b from-white/90 to-white/80 dark:from-slate-800/90 dark:to-slate-900/80 backdrop-blur-md rounded-[2rem] border border-white/40 dark:border-slate-700/40">
+          {/* Header Section */}
           <motion.div
             drag
             dragMomentum={false}
             dragConstraints={{
               left: 0,
-              right: window.innerWidth - 384, // w-96 = 384px
+              right: window.innerWidth - 384,
               top: 0,
               bottom: window.innerHeight - 100
             }}
@@ -1034,11 +1036,11 @@ Keep your response focused and concise.`
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   {note.metadata.sourceType === 'web' ? (
-                    <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Globe className="h-4 w-4 shrink-0 text-foreground" />
                   ) : (
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <FileText className="h-4 w-4 shrink-0 text-foreground" />
                   )}
-                  <h3 className="text-sm font-medium leading-none truncate">
+                  <h3 className="text-sm font-medium leading-none truncate text-foreground">
                     {note.metadata.path.split('/').pop()}
                   </h3>
                 </div>
@@ -1059,10 +1061,10 @@ Keep your response focused and concise.`
             </CardHeader>
           </motion.div>
 
-          {/* Content section - not draggable */}
+          {/* Content Section */}
           <CardContent className="p-3 pt-0">
             <ScrollArea className="h-[300px] w-full rounded-md pr-4">
-              <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0 [&_img]:max-w-full [&_img]:h-auto">
+              <div className="prose prose-sm dark:prose-invert max-w-none [&_.mdxeditor]:bg-transparent [&_.mdxeditor]:border-0 [&_.mdxeditor]:p-0">
                 <MDXEditor
                   ref={editorRef}
                   markdown={localText}
@@ -1079,7 +1081,12 @@ Keep your response focused and concise.`
                     codeBlockPlugin(),
                     imagePlugin({ imageUploadHandler: handleImageUpload })
                   ]}
-                  contentEditableClassName="min-h-[280px] font-mono text-sm"
+                  contentEditableClassName={cn(
+                    "min-h-[280px] font-mono text-sm",
+                    "text-foreground dark:text-foreground",
+                    "selection:bg-primary/20",
+                    "[&_*]:text-foreground dark:[&_*]:text-foreground"
+                  )}
                   className={cn(
                     '!bg-transparent !border-0 !p-0 overflow-hidden',
                     isEditing && 'ring-1 ring-ring rounded-sm'
@@ -1089,7 +1096,7 @@ Keep your response focused and concise.`
             </ScrollArea>
           </CardContent>
 
-          {/* Make footer draggable */}
+          {/* Footer Section */}
           <motion.div
             drag
             dragMomentum={false}
@@ -1310,6 +1317,7 @@ Keep your response focused and concise.`
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
+      <ThemeProvider>
       {/* Add Onboarding at the top level */}
       {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
 
@@ -1319,10 +1327,11 @@ Keep your response focused and concise.`
           {activePanel === 'settings' && (
             <Suspense fallback={<div>Loading Settings...</div>}>
               <Card
-                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+                className="relative overflow-hidden bg-gradient-to-b from-white/80 to-white/60 dark:from-slate-800/80 dark:to-slate-900/60 backdrop-blur-md rounded-[2rem] shadow-[0_8px_32px_-4px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_-4px_rgba(0,0,0,0.2)] border border-white/40 dark:border-slate-700/40 flex flex-col transition-all duration-200"
                 style={{ width: 600 }}
               >
-                <CardContent className="p-4 flex flex-col h-[600px]">
+                <div className="absolute inset-0 bg-white/20 dark:bg-slate-900/20 blur-xl rounded-[2rem]" />
+                <CardContent className="relative p-4 flex flex-col h-[600px]">
                   <SettingsPanel
                     isPrivate={isPrivate}
                     setIsPrivate={setIsPrivate}
@@ -1339,14 +1348,21 @@ Keep your response focused and concise.`
 
           {/* Main Search Card */}
           <Card
-            className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+            className={cn(
+              "relative overflow-hidden",
+              "bg-gradient-to-b from-white/80 to-white/60 dark:from-slate-800/80 dark:to-slate-900/60",
+              "backdrop-blur-md rounded-[2rem]",
+              "shadow-[0_8px_32px_-4px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_-4px_rgba(0,0,0,0.2)]",
+              "border border-white/40 dark:border-slate-700/40",
+              "flex flex-col transition-all duration-200"
+            )}
             style={{ width: 600 }}
             data-highlight="search-container"
           >
+            <div className="absolute inset-0 bg-white/20 dark:bg-slate-900/20 blur-xl rounded-[2rem]" />
             <CardContent
               className={cn(
-                'p-0 flex flex-col',
-                // Remove any padding/spacing when no results
+                'relative p-0 flex flex-col',
                 showResults && searchResults.length > 0 ? 'h-[600px]' : 'h-auto'
               )}
             >
@@ -1396,11 +1412,12 @@ Keep your response focused and concise.`
           {conversations.length > 0 && activePanel === 'response' && (
             <Suspense fallback={<div>Loading Response Panel...</div>}>
               <Card
-                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+                className="relative overflow-hidden bg-gradient-to-b from-white/80 to-white/60 dark:from-slate-800/80 dark:to-slate-900/60 backdrop-blur-md rounded-[2rem] shadow-[0_8px_32px_-4px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_-4px_rgba(0,0,0,0.2)] border border-white/40 dark:border-slate-700/40 flex flex-col transition-all duration-200"
                 style={{ width: 600 }}
                 data-highlight="response-panel"
               >
-                <CardContent className="p-4 flex flex-col h-[600px]">
+                <div className="absolute inset-0 bg-white/20 dark:bg-slate-900/20 blur-xl rounded-[2rem]" />
+                <CardContent className="relative p-4 flex flex-col h-[600px]">
                   <ResponsePanel
                     conversations={conversations}
                     addAIResponseToContext={() => {}}
@@ -1454,6 +1471,7 @@ Keep your response focused and concise.`
           />
         ))}
       </AnimatePresence>
+      </ThemeProvider>
     </div>
   )
 }

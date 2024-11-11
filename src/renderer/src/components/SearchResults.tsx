@@ -45,7 +45,10 @@ const cardVariants = {
     opacity: 1,
     scale: 1,
     transition: {
-      duration: 0.05
+      duration: 0.05,
+      type: "spring",
+      stiffness: 300,
+      damping: 30
     }
   },
   exit: {
@@ -79,7 +82,7 @@ const truncateText = (text: string, maxLength: number = 150) => {
   return text.slice(0, maxLength) + '...'
 }
 
-const SearchResults: React.FC<SearchResultsProps> = React.memo(
+const SearchResults = React.memo<SearchResultsProps>(
   ({ searchResults, selectedIndex, rankedChunks, onDragStart, onDragEnd }) => {
     // Group chunks by path and sort within groups by their original position
     const groupedChunks = useMemo(() => {
@@ -133,7 +136,7 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
 
     return (
       <div className={cn(
-        'flex-1 overflow-hidden',
+        'flex-1 overflow-hidden px-2',
         searchResults.length === 0 ? 'h-0' : ''
       )}>
         <ScrollArea className={cn(
@@ -160,24 +163,26 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                 exit="exit"
                 layoutId={`card-${chunk.path}-${index}`}
                 className={cn(
-                  'card-item m-2',
-                  'cursor-move',
+                  'relative my-4 first:mt-2 last:mb-2',
+                  'cursor-move group',
                   index === selectedIndex ? 'z-10' : 'z-0'
                 )}
                 draggable="true"
-                onDragStart={(e) => {
-                  e.stopPropagation()
-                  onDragStart(e, result)
-                }}
-                onDragEnd={(e) => {
-                  e.stopPropagation()
-                  onDragEnd(e)
-                }}
+                onDragStart={(e) => onDragStart(e, result)}
+                onDragEnd={onDragEnd}
               >
+                <div className="absolute inset-0 bg-white/20 dark:bg-slate-900/20 blur-lg rounded-[1.5rem] group-hover:bg-white/30 dark:group-hover:bg-slate-900/30 transition-all duration-300" />
                 <Card
                   className={cn(
-                    'hover:bg-accent/50 transition-all duration-200',
-                    index === selectedIndex ? 'bg-accent border-primary' : ''
+                    'relative bg-gradient-to-b from-white/90 to-white/80 dark:from-slate-800/90 dark:to-slate-900/80',
+                    'backdrop-blur-md rounded-[1.5rem] overflow-hidden',
+                    'border border-white/40 dark:border-slate-700/40',
+                    'shadow-[0_8px_16px_-6px_rgba(0,0,0,0.1),inset_0_2px_4px_rgba(255,255,255,0.4)]',
+                    'dark:shadow-[0_8px_16px_-6px_rgba(0,0,0,0.2),inset_0_2px_4px_rgba(0,0,0,0.4)]',
+                    'transition-all duration-300',
+                    'group-hover:shadow-[0_12px_24px_-8px_rgba(0,0,0,0.15),inset_0_2px_4px_rgba(255,255,255,0.4)]',
+                    'dark:group-hover:shadow-[0_12px_24px_-8px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(0,0,0,0.4)]',
+                    index === selectedIndex ? 'ring-2 ring-primary/30 ring-offset-2 ring-offset-background/50' : ''
                   )}
                   onClick={() => handleResultClick(result)}
                 >

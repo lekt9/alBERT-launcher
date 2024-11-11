@@ -7,7 +7,7 @@ import log from './logger'
 import path from 'node:path'
 import { readContent } from './utils/reader'
 import { embed, rerank } from './embeddings'
-import { SearchResult, CommonSearchResult } from './types'
+import type { SearchResult } from './types'
 
 interface CacheEntry {
   timestamp: number;
@@ -80,7 +80,17 @@ async function getPerplexityAnswer(searchTerm: string): Promise<SearchResult | n
   }
 }
 
-export const getRouter = (window: BrowserWindow) => {
+const marshmallowStyles = {
+  card: "bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg rounded-3xl shadow-lg border border-white/20 dark:border-slate-800/50 hover:shadow-xl transition-shadow duration-200",
+  header: "rounded-t-3xl bg-gradient-to-b from-white/50 to-transparent dark:from-slate-800/50 p-6",
+  content: "p-6 space-y-4",
+  button: "rounded-2xl bg-white/80 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-700 shadow-md hover:shadow-lg transition-all duration-200 px-4 py-2",
+  input: "rounded-2xl bg-white/70 dark:bg-slate-800/70 border-white/30 dark:border-slate-700/30 focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800 shadow-inner",
+  results: "space-y-3 p-4",
+  resultCard: "bg-white/60 dark:bg-slate-800/60 rounded-2xl p-4 hover:shadow-lg transition-all duration-200 border border-white/30 dark:border-slate-700/30"
+}
+
+export const getRouter = (window: BrowserWindow): ReturnType<typeof t.router> => {
   const router = t.router
 
   return router({
@@ -233,11 +243,21 @@ export const getRouter = (window: BrowserWindow) => {
     window: router({
       hide: t.procedure.mutation(() => {
         log.info('tRPC Call: window.hide')
-        window.hide()
+        window.webContents.executeJavaScript(`
+          document.body.style.opacity = '0';
+          setTimeout(() => { window.hide(); }, 200);
+        `)
       }),
       show: t.procedure.mutation(() => {
         log.info('tRPC Call: window.show')
         window.show()
+        window.webContents.executeJavaScript(`
+          document.body.style.opacity = '0';
+          requestAnimationFrame(() => {
+            document.body.style.opacity = '1';
+            document.body.style.transition = 'opacity 200ms ease-in-out';
+          });
+        `)
       }),
       toggle: t.procedure.mutation(() => {
         log.info('tRPC Call: window.toggle')
@@ -322,50 +342,26 @@ async function searchFiles(searchTerm: string): Promise<SearchResult[]> {
   return await searchDB.search(searchTerm)
 }
 
-// Update the quickSearchWeb function to handle timeouts and failures
-async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
-  try {
-    // Create a promise that rejects after 1 second
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Web search timeout')), 2000)
-    })
+export type AppRouter = ReturnType<typeof getRouter>
 
-    // Race between the web search and the timeout
-    const searchResults = await Promise.race([
-      braveSearch.webSearch(searchTerm, {
-        count: 5,
-        search_lang: 'en',
-        country: 'US',
-        text_decorations: false
-      }),
-      timeoutPromise
-    ])
-
-    if (!searchResults.web?.results) {
-      return []
-    }
-
-    return searchResults.web.results.map(result => ({
-      text: result.description || result.title,
-      metadata: {
-        path: result.url,
-        title: result.title,
-        created_at: Date.now() / 1000,
-        modified_at: Date.now() / 1000,
-        filetype: 'web',
-        languages: ['en'],
-        links: [result.url],
-        owner: null,
-        seen_at: Date.now() / 1000,
-        sourceType: 'web',
-        description: result.description
-      }
-    }))
-  } catch (error) {
-    // Log the error but don't throw - just return empty results
-    log.warn('Web search failed or timed out:', error)
-    return []
-  }
+// Add animation helpers
+const fadeInUp = {
+  initial: { opacity: 0, y: 20, scale: 0.95 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  transition: { duration: 0.2, ease: "easeOut" }
 }
 
-export type AppRouter = ReturnType<typeof getRouter>
+const springTransition = {
+  type: "spring",
+  stiffness: 300,
+  damping: 30
+}
+
+// Export the styles and animations for use in other components
+export const uiStyles = {
+  marshmallow: marshmallowStyles,
+  animations: {
+    fadeInUp,
+    springTransition
+  }
+}

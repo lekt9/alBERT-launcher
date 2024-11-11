@@ -59,6 +59,12 @@ module.exports = {
   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
+  			},
+  			marshmallow: {
+  				50: '#ffffff',
+  				100: '#fefefe',
+  				200: '#f8f8f8',
+  				// ... etc
   			}
   		},
   		borderRadius: {
@@ -90,6 +96,10 @@ module.exports = {
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
   			'accordion-up': 'accordion-up 0.2s ease-out'
+  		},
+  		boxShadow: {
+  			'marshmallow': '0 8px 32px -4px rgba(0,0,0,0.1)',
+  			'marshmallow-lg': '0 12px 40px -8px rgba(0,0,0,0.15)',
   		}
   	}
   },

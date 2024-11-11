@@ -101,200 +101,138 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2 border-b">
-        <h2 className="text-sm font-medium">Chat History</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onNewChat}
-          className="hover:bg-accent rounded-full"
-          title="New Chat"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
-
       <ScrollArea
         ref={scrollAreaRef}
-        className="flex-1"
+        className="flex-1 px-2"
         onScroll={handleScroll}
-        style={{
-          maskImage:
-            'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
-          WebkitMaskImage:
-            'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
-        }}
       >
-        <div className="px-4 py-2 space-y-6">
-          {completedConversations.map((conversation, index) => (
+        <div className="space-y-4 py-2">
+          {completedConversations.map((conv, idx) => (
             <Card
-              key={conversation.timestamp}
+              key={idx}
               className={cn(
-                'group relative overflow-hidden transition-all duration-200',
-                index === completedConversations.length - 1 && 'mb-4'
+                "relative group",
+                "bg-gradient-to-b from-white/80 to-white/60 dark:from-slate-800/80 dark:to-slate-900/60",
+                "backdrop-blur-md rounded-[1.5rem]",
+                "border border-white/40 dark:border-slate-700/40",
+                "shadow-[0_8px_16px_-6px_rgba(0,0,0,0.1),inset_0_2px_4px_rgba(255,255,255,0.4)]",
+                "dark:shadow-[0_8px_16px_-6px_rgba(0,0,0,0.2),inset_0_2px_4px_rgba(0,0,0,0.4)]",
+                "transition-all duration-300",
+                "hover:shadow-[0_12px_24px_-8px_rgba(0,0,0,0.15),inset_0_2px_4px_rgba(255,255,255,0.4)]",
+                "dark:hover:shadow-[0_12px_24px_-8px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(0,0,0,0.4)]"
               )}
-              ref={index === completedConversations.length - 1 ? lastMessageRef : undefined}
               draggable="true"
-              onDragStart={(e) => {
-                e.stopPropagation()
-                onDragStart(e, {
-                  text: conversation.answer,
-                  metadata: {
-                    path: `ai-response-${conversation.timestamp}`,
-                    title: conversation.question,
-                    created_at: conversation.timestamp / 1000,
-                    modified_at: conversation.timestamp / 1000,
-                    filetype: 'ai-response',
-                    languages: ['en'],
-                    links: conversation.sources?.map((s) => s.path) || [],
-                    owner: null,
-                    seen_at: Date.now() / 1000,
-                    sourceType: 'ai-response',
-                    sources: conversation.sources
-                  }
-                })
-              }}
-              onDragEnd={(e) => {
-                e.stopPropagation()
-                onDragEnd(e)
-              }}
+              onDragStart={(e) => onDragStart(e, { text: conv.answer, metadata: {} })}
+              onDragEnd={onDragEnd}
             >
-              {/* Header Section */}
-              <div className="flex items-center justify-between p-4 border-b bg-muted/30">
-                <div className="flex items-center gap-3">
-                  <div className="bg-primary/10 rounded-full p-2">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-sm line-clamp-1">{conversation.question}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(conversation.timestamp).toLocaleString()}
+              <div className="absolute inset-0 bg-white/20 dark:bg-slate-900/20 blur-xl rounded-[1.5rem]" />
+              <div className="relative p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-primary/10 dark:bg-primary/20 rounded-full p-2">
+                      <MessageSquare className="h-4 w-4 text-primary dark:text-primary" />
                     </div>
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {new Date(conv.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => handleCopy(conv.answer)}
+                    >
+                      <Copy className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => handlePin(conv)}
+                    >
+                      <Pin className="h-4 w-4 text-muted-foreground" />
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                    Drag to create note
-                  </span>
-                  <button
-                    onClick={addAIResponseToContext}
-                    className="p-2 hover:bg-accent rounded-full"
-                    title="Pin to context"
-                  >
-                    <Pin className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              </div>
 
-              {/* Content Section */}
-              <div className="p-4 relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 opacity-50 hover:opacity-100"
-                  onClick={() => copyToClipboard(conversation.answer)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-                
-                {/* Answer with enhanced markdown */}
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ ...props }) => (
-                        <Button onClick={() => handleSourceClick(props.href || '')} variant="link">
-                          {props.children}
-                        </Button>
-                      ),
-                      code: ({ inline, className, children, ...props }) => {
-                        const match = /language-(\w+)/.exec(className || '')
-                        return !inline && match ? (
-                          <div className="relative">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-2 top-2 h-8 w-8 opacity-50 hover:opacity-100"
-                              onClick={() => copyToClipboard(String(children))}
-                            >
-                              <Copy className="h-4 w-4 text-primary" />
-                            </Button>
-                            <SyntaxHighlighter
-                              style={vscDarkPlus}
-                              language={match[1]}
-                              PreTag="div"
-                              {...props}
-                            >
-                              {String(children).replace(/\n$/, '')}
-                            </SyntaxHighlighter>
-                          </div>
-                        ) : (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        )
-                      },
-                      table: ({ children }) => (
-                        <div className="overflow-x-auto">
-                          <table className="border-collapse border border-border">{children}</table>
-                        </div>
-                      ),
-                      th: ({ children }) => (
-                        <th className="border border-border bg-muted p-2 text-left">{children}</th>
-                      ),
-                      td: ({ children }) => <td className="border border-border p-2">{children}</td>
-                    }}
-                  >
-                    {conversation.answer}
-                  </ReactMarkdown>
-                </div>
+                <div className="mt-2 space-y-2">
+                  <div className="text-sm text-muted-foreground font-medium">
+                    {conv.question}
+                  </div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code({ node, inline, className, children, ...props }) {
+                          if (inline) {
+                            return <code className="bg-muted/50 rounded px-1" {...props}>{children}</code>
+                          }
+                          return (
+                            <div className="relative group">
+                              <div className="absolute inset-0 bg-muted/20 dark:bg-muted/10 blur-sm rounded-lg" />
+                              <SyntaxHighlighter
+                                {...props}
+                                style={vscDarkPlus}
+                                language="typescript"
+                                PreTag="div"
+                                className="relative !bg-transparent !mt-0 rounded-lg"
+                              >
+                                {String(children).replace(/\n$/, '')}
+                              </SyntaxHighlighter>
+                            </div>
+                          )
+                        }
+                      }}
+                    >
+                      {conv.answer}
+                    </ReactMarkdown>
+                  </div>
 
-                {/* Sources Section with Accordion */}
-                {conversation.sources && conversation.sources.length > 0 && (
-                  <div className="mt-4 pt-4 border-t">
-                    <Accordion type="single" collapsible>
-                      <AccordionItem value="sources">
-                        <AccordionTrigger className="text-sm font-medium">
-                          Sources ({conversation.sources.length})
+                  {/* Sources Accordion */}
+                  {conv.sources && conv.sources.length > 0 && (
+                    <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value="sources" className="border-none">
+                        <AccordionTrigger className="py-2 text-sm text-muted-foreground hover:text-foreground">
+                          Sources ({conv.sources.length})
                         </AccordionTrigger>
                         <AccordionContent>
-                          <div className="grid gap-2 pt-2">
-                            {conversation.sources.map((source, index) => (
-                              <Card
-                                key={index}
-                                className="p-3 hover:bg-accent/50 cursor-pointer transition-colors"
-                                onClick={() => handleSourceClick(source.path)}
+                          <div className="space-y-2">
+                            {conv.sources.map((source, i) => (
+                              <div
+                                key={i}
+                                className="text-sm bg-muted/30 dark:bg-muted/20 rounded-lg p-3"
                               >
-                                <div className="flex items-start gap-2">
+                                <div className="flex items-center gap-2 text-muted-foreground hover:text-foreground cursor-pointer"
+                                     onClick={() => handleSourceClick(source.path)}>
                                   {source.path.startsWith('http') ? (
-                                    <ExternalLink className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                                    <Globe className="h-4 w-4" />
                                   ) : (
-                                    <FileText className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                                    <FileText className="h-4 w-4" />
                                   )}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-medium truncate">{source.path}</div>
-                                    {source.citations && source.citations.length > 0 && (
-                                      <div className="mt-2 space-y-1">
-                                        {source.citations.map((citation, i) => (
-                                          <div
-                                            key={i}
-                                            className="text-xs text-muted-foreground bg-muted/50 p-2 rounded"
-                                          >
-                                            &ldquo;{citation}&rdquo;
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
+                                  <span className="truncate">{source.path}</span>
+                                  <ExternalLink className="h-3 w-3 flex-shrink-0" />
                                 </div>
-                              </Card>
+                                {source.citations && (
+                                  <div className="mt-2 space-y-1">
+                                    {source.citations.map((citation, i) => (
+                                      <div
+                                        key={i}
+                                        className="text-xs text-muted-foreground bg-muted/50 dark:bg-muted/30 p-2 rounded-lg"
+                                      >
+                                        &ldquo;{citation}&rdquo;
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             ))}
                           </div>
                         </AccordionContent>
                       </AccordionItem>
                     </Accordion>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </Card>
           ))}
@@ -304,26 +242,42 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
       {/* Follow-up Question Input */}
       <form
         onSubmit={handleFollowUpSubmit}
-        className="sticky bottom-0 bg-background/95 backdrop-blur-sm p-4 border-t shadow-lg"
+        className="sticky bottom-0 p-2"
       >
-        <div className="flex gap-2">
-          <Input
-            ref={inputRef}
-            type="text"
-            placeholder="Ask a follow-up question..."
-            value={followUpQuestion}
-            onChange={(e) => setFollowUpQuestion(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            className="flex-1"
-          />
-          <Button type="submit" size="icon" disabled={isLoading || !followUpQuestion.trim()}>
-            <Send className="h-4 w-4" />
-          </Button>
+        <div className="relative">
+          <div className="absolute inset-0 bg-background/40 dark:bg-background/40 blur-xl rounded-[1.5rem]" />
+          <div className="relative bg-gradient-to-b from-white/80 to-white/60 dark:from-slate-800/80 dark:to-slate-900/60 backdrop-blur-md rounded-[1.5rem] border border-white/40 dark:border-slate-700/40 shadow-[inset_0_2px_4px_rgba(255,255,255,0.4)] dark:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)] p-2">
+            <div className="flex gap-2">
+              <Input
+                ref={inputRef}
+                type="text"
+                placeholder="Ask a follow-up question..."
+                value={followUpQuestion}
+                onChange={(e) => setFollowUpQuestion(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isLoading}
+                className={cn(
+                  "flex-1",
+                  "bg-transparent",
+                  "border-0",
+                  "focus:ring-0",
+                  "placeholder:text-muted-foreground/40"
+                )}
+              />
+              <Button 
+                type="submit" 
+                size="icon"
+                disabled={isLoading || !followUpQuestion.trim()}
+                className="bg-primary/10 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30"
+              >
+                <Send className="h-4 w-4 text-primary dark:text-primary" />
+              </Button>
+            </div>
+          </div>
         </div>
       </form>
     </div>
-  )
-}
+  );
+};
 
-export default ResponsePanel
+export default ResponsePanel;

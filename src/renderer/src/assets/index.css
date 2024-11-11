@@ -15,70 +15,119 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    /* Flatter light theme */
+    --background: 220 25% 97%;
+    --foreground: 220 25% 10%;
+    
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 220 25% 10%;
+    
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.3rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --h1-size: 2.25rem;    /* 36px */
-    --h2-size: 1.875rem;   /* 30px */
-    --h3-size: 1.5rem;     /* 24px */
-    --h4-size: 1.25rem;    /* 20px */
-    --h5-size: 1.125rem;   /* 18px */
-    --h6-size: 1rem;       /* 16px */
-    --heading-font-weight: 600;
+    --popover-foreground: 220 25% 10%;
+    
+    /* Softer primary */
+    --primary: 220 40% 70%;
+    --primary-foreground: 220 40% 20%;
+    
+    /* Flatter secondary */
+    --secondary: 220 20% 92%;
+    --secondary-foreground: 220 20% 30%;
+    
+    /* Muted tones */
+    --muted: 220 20% 92%;
+    --muted-foreground: 220 20% 40%;
+    
+    /* Soft accent */
+    --accent: 220 30% 90%;
+    --accent-foreground: 220 30% 25%;
+    
+    /* Cool destructive */
+    --destructive: 0 60% 85%;
+    --destructive-foreground: 0 60% 30%;
+    
+    /* Subtle borders */
+    --border: 220 20% 92%;
+    --input: 220 20% 92%;
+    --ring: 220 40% 70%;
+    
+    --radius: 1rem;
+
+    /* Chart colors - soft neutrals */
+    --chart-1: 220 40% 70%;
+    --chart-2: 200 40% 70%;
+    --chart-3: 180 30% 70%;
+    --chart-4: 240 30% 70%;
+    --chart-5: 260 30% 70%;
+
+    /* Typography */
+    --h1-size: 2.25rem;    
+    --h2-size: 1.875rem;   
+    --h3-size: 1.5rem;     
+    --h4-size: 1.25rem;    
+    --h5-size: 1.125rem;   
+    --h6-size: 1rem;       
+    --heading-font-weight: 500;
     --heading-line-height: 1.25;
     --heading-margin: 1.5rem 0 1rem;
+
+    /* Link colors */
+    --link: 210 85% 75%;
+    --link-hover: 210 85% 65%;
+    --link-foreground: 210 50% 30%;
+    --link-hover-foreground: 210 50% 20%;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    /* Flatter dark theme */
+    --background: 220 25% 11%;
+    --foreground: 220 20% 90%;
+    
+    --card: 220 25% 13%;
+    --card-foreground: 220 20% 90%;
+    
+    --popover: 220 25% 13%;
+    --popover-foreground: 220 20% 90%;
+    
+    /* Softer primary */
+    --primary: 220 40% 60%;
+    --primary-foreground: 220 40% 15%;
+    
+    /* Flatter secondary */
+    --secondary: 220 25% 20%;
+    --secondary-foreground: 220 20% 90%;
+    
+    /* Muted colors */
+    --muted: 220 25% 18%;
+    --muted-foreground: 220 20% 70%;
+    
+    /* Soft accent */
+    --accent: 220 25% 20%;
+    --accent-foreground: 220 20% 90%;
+    
+    /* Cool destructive */
+    --destructive: 0 50% 40%;
+    --destructive-foreground: 0 60% 90%;
+    
+    /* Subtle borders */
+    --border: 220 25% 20%;
+    --input: 220 25% 20%;
+    --ring: 220 40% 60%;
+
+    /* Chart colors */
+    --chart-1: 220 40% 60%;
+    --chart-2: 200 35% 60%;
+    --chart-3: 180 30% 60%;
+    --chart-4: 240 30% 60%;
+    --chart-5: 260 30% 60%;
+
+    /* Link colors */
+    --link: 210 85% 70%;
+    --link-hover: 210 85% 60%;
+    --link-foreground: 210 50% 85%;
+    --link-hover-foreground: 210 50% 95%;
   }
 
-  /* Markdown heading styles */
+  /* Typography styles */
   h1, h2, h3, h4, h5, h6 {
     font-weight: var(--heading-font-weight);
     line-height: var(--heading-line-height);
@@ -92,4 +141,75 @@
   h4 { font-size: var(--h4-size); }
   h5 { font-size: var(--h5-size); }
   h6 { font-size: var(--h6-size); }
+
+  /* Link styles */
+  a, .link {
+    color: hsl(var(--link));
+    text-decoration-color: hsl(var(--link) / 0.3);
+    text-underline-offset: 0.2em;
+    transition: all 0.2s ease;
+  }
+
+  a:hover, .link:hover {
+    color: hsl(var(--link-hover));
+    text-decoration-color: hsl(var(--link-hover));
+  }
+
+  /* Markdown links */
+  .prose a {
+    color: hsl(var(--link));
+    text-decoration-color: hsl(var(--link) / 0.3);
+    font-weight: 500;
+  }
+
+  .prose a:hover {
+    color: hsl(var(--link-hover));
+    text-decoration-color: hsl(var(--link-hover));
+  }
+}
+
+/* Smooth transitions */
+* {
+  scroll-behavior: smooth;
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: ease-in-out;
+  transition-duration: 200ms;
+}
+
+/* Flatter background */
+body {
+  background: linear-gradient(
+    135deg,
+    hsla(var(--background), 0.95) 0%,
+    hsla(var(--background), 0.98) 50%,
+    hsla(var(--accent), 0.95) 100%
+  );
+  min-height: 100vh;
+  backdrop-filter: blur(8px);
+}
+
+/* Subtle focus styles */
+:focus-visible {
+  outline: 2px solid hsla(var(--ring), 0.3);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* Minimal scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsla(var(--muted), 0.3);
+  border-radius: var(--radius);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsla(var(--muted-foreground), 0.3);
 }
