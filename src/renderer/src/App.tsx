@@ -1473,6 +1473,7 @@ Keep your response focused and concise.`,
                         askAIQuestion={askAIQuestion}
                         isLoading={isLoading}
                         onNewChat={clearChat}
+                        createStickyNote={createStickyNote}
                       />
                     </CardContent>
                   </Card>

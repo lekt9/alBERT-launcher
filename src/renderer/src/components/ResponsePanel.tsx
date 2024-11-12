@@ -1,65 +1,150 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Pin, FileText, ExternalLink, Send, Plus, Copy } from 'lucide-react'
-import { AIResponse } from '@/types'
+import React, { useRef, useState, useEffect } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
+import { Loader2, Plus, Send } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { Card } from '@/components/ui/card'
-import { trpcClient } from '../util/trpc-client'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
-import { cn } from '@/lib/utils'
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent
-} from '@/components/ui/accordion'
+import { useDrag } from 'react-dnd'
+import { Input } from '@/components/ui/input'
 
 interface ResponsePanelProps {
   conversations: AIResponse[]
   addAIResponseToContext: () => void
-  askAIQuestion: (question: string) => Promise<void>
+  askAIQuestion: (originalQuery: string) => Promise<void>
   isLoading: boolean
-  onDragStart: (
-    e: React.DragEvent<HTMLDivElement>,
-    content: { text: string; metadata: any }
-  ) => void
-  onDragEnd: (e: React.DragEvent<HTMLDivElement>) => void
   onNewChat: () => void
+  onDragStart?: () => void
+  onDragEnd?: () => void
+  createStickyNote?: (
+    result: { text: string; metadata: any },
+    position: { x: number; y: number }
+  ) => void
 }
+
+interface AIResponse {
+  question: string
+  answer: string
+  timestamp: number
+  sources?: Array<{
+    path: string
+    preview?: string
+    citations?: string[]
+  }>
+}
+
+const ResponseItem = React.forwardRef<
+  HTMLDivElement,
+  {
+    response: AIResponse
+    createStickyNote?: ResponsePanelProps['createStickyNote']
+  }
+>(({ response, createStickyNote }, ref) => {
+  const [{ isDragging }, drag] = useDrag({
+    type: 'searchResult',
+    item: () => ({
+      type: 'searchResult',
+      result: {
+        text: `# ${response.question}\n\n${response.answer}`,
+        metadata: {
+          path: `ai-response-${response.timestamp}.md`,
+          created_at: response.timestamp / 1000,
+          modified_at: response.timestamp / 1000,
+          filetype: 'markdown',
+          languages: ['en'],
+          links: [],
+          owner: null,
+          seen_at: response.timestamp / 1000,
+          sourceType: 'document',
+          title: response.question
+        }
+      }
+    }),
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging()
+    }),
+    end: (item, monitor) => {
+      const dropResult = monitor.getDropResult<{ x: number; y: number }>()
+      if (dropResult && createStickyNote) {
+        createStickyNote(item.result, {
+          x: dropResult.x,
+          y: dropResult.y
+        })
+      }
+    }
+  })
+
+  const setRefs = (element: HTMLDivElement) => {
+    drag(element)
+    if (typeof ref === 'function') {
+      ref(element)
+    } else if (ref) {
+      ref.current = element
+    }
+  }
+
+  return (
+    <div ref={setRefs} style={{ opacity: isDragging ? 0.5 : 1 }} className="space-y-4 p-4">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">{response.question}</h3>
+          <span className="text-xs text-muted-foreground">
+            {new Date(response.timestamp).toLocaleString()}
+          </span>
+        </div>
+        <div className="prose prose-sm dark:prose-invert max-w-none">
+          <ReactMarkdown>{response.answer}</ReactMarkdown>
+        </div>
+        {response.sources && response.sources.length > 0 && (
+          <div className="mt-4">
+            <h4 className="text-sm font-medium mb-2">Sources:</h4>
+            <ul className="text-sm space-y-1">
+              {response.sources.map((source, index) => (
+                <li key={index}>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      // Handle source click
+                    }}
+                    className="text-blue-500 hover:underline"
+                  >
+                    {source.path}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
 
 const ResponsePanel: React.FC<ResponsePanelProps> = ({
   conversations,
-  addAIResponseToContext,
-  askAIQuestion,
   isLoading,
-  onDragStart,
-  onDragEnd,
-  onNewChat
+  onNewChat,
+  createStickyNote,
+  askAIQuestion
 }) => {
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const lastMessageRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
   const [followUpQuestion, setFollowUpQuestion] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const lastMessageRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
-  const completedConversations = conversations.filter((conv) => conv.answer)
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
-    if (autoScroll && lastMessageRef.current) {
-      lastMessageRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'end'
-      })
+    if (autoScroll && scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight
+      }
     }
   }, [conversations, autoScroll])
 
-  // Detect manual scroll to disable auto-scroll
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    const scrollContainer = e.currentTarget
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainer
     const isAtBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 50
     setAutoScroll(isAtBottom)
   }
@@ -77,252 +162,63 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
     e.stopPropagation()
   }
 
-  const copyToClipboard = async (text: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (error) {
-      console.error('Failed to copy text:', error)
-    }
-  }
-
-  if (!completedConversations.length) return null
-
-  const handleSourceClick = async (path: string): Promise<void> => {
-    if (path.startsWith('http')) {
-      window.open(path, '_blank')
-    } else {
-      try {
-        await trpcClient.document.open.mutate(path)
-      } catch (error) {
-        console.error('Failed to open document:', error)
-      }
-    }
-  }
-
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2 border-b">
-        <h2 className="text-sm font-medium">Chat History</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onNewChat}
-          className="hover:bg-accent rounded-full"
-          title="New Chat"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <ScrollArea
-        ref={scrollAreaRef}
-        className="flex-1"
-        onScroll={handleScroll}
-        style={{
-          maskImage:
-            'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
-          WebkitMaskImage:
-            'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
-        }}
-      >
-        <div className="px-4 py-2 space-y-6">
-          {completedConversations.map((conversation, index) => (
-            <Card
-              key={conversation.timestamp}
-              className={cn(
-                'group relative overflow-hidden transition-all duration-200',
-                index === completedConversations.length - 1 && 'mb-4'
-              )}
-              ref={index === completedConversations.length - 1 ? lastMessageRef : undefined}
-              draggable="true"
-              onDragStart={(e) => {
-                e.stopPropagation()
-                onDragStart(e, {
-                  text: conversation.answer,
-                  metadata: {
-                    path: `ai-response-${conversation.timestamp}`,
-                    title: conversation.question,
-                    created_at: conversation.timestamp / 1000,
-                    modified_at: conversation.timestamp / 1000,
-                    filetype: 'ai-response',
-                    languages: ['en'],
-                    links: conversation.sources?.map((s) => s.path) || [],
-                    owner: null,
-                    seen_at: Date.now() / 1000,
-                    sourceType: 'ai-response',
-                    sources: conversation.sources
-                  }
-                })
-              }}
-              onDragEnd={(e) => {
-                e.stopPropagation()
-                onDragEnd(e)
-              }}
-            >
-              {/* Header Section */}
-              <div className="flex items-center justify-between p-4 border-b bg-muted/30">
-                <div className="flex items-center gap-3">
-                  <div className="bg-primary/10 rounded-full p-2">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-sm line-clamp-1">{conversation.question}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(conversation.timestamp).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                    Drag to create note
-                  </span>
-                  <button
-                    onClick={addAIResponseToContext}
-                    className="p-2 hover:bg-accent rounded-full"
-                    title="Pin to context"
-                  >
-                    <Pin className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Content Section */}
-              <div className="p-4 relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 opacity-50 hover:opacity-100"
-                  onClick={() => copyToClipboard(conversation.answer)}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-                
-                {/* Answer with enhanced markdown */}
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ ...props }) => (
-                        <Button onClick={() => handleSourceClick(props.href || '')} variant="link">
-                          {props.children}
-                        </Button>
-                      ),
-                      code: ({ inline, className, children, ...props }) => {
-                        const match = /language-(\w+)/.exec(className || '')
-                        return !inline && match ? (
-                          <div className="relative">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="absolute right-2 top-2 h-8 w-8 opacity-50 hover:opacity-100"
-                              onClick={() => copyToClipboard(String(children))}
-                            >
-                              <Copy className="h-4 w-4 text-primary" />
-                            </Button>
-                            <SyntaxHighlighter
-                              style={vscDarkPlus}
-                              language={match[1]}
-                              PreTag="div"
-                              {...props}
-                            >
-                              {String(children).replace(/\n$/, '')}
-                            </SyntaxHighlighter>
-                          </div>
-                        ) : (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        )
-                      },
-                      table: ({ children }) => (
-                        <div className="overflow-x-auto">
-                          <table className="border-collapse border border-border">{children}</table>
-                        </div>
-                      ),
-                      th: ({ children }) => (
-                        <th className="border border-border bg-muted p-2 text-left">{children}</th>
-                      ),
-                      td: ({ children }) => <td className="border border-border p-2">{children}</td>
-                    }}
-                  >
-                    {conversation.answer}
-                  </ReactMarkdown>
-                </div>
-
-                {/* Sources Section with Accordion */}
-                {conversation.sources && conversation.sources.length > 0 && (
-                  <div className="mt-4 pt-4 border-t">
-                    <Accordion type="single" collapsible>
-                      <AccordionItem value="sources">
-                        <AccordionTrigger className="text-sm font-medium">
-                          Sources ({conversation.sources.length})
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          <div className="grid gap-2 pt-2">
-                            {conversation.sources.map((source, index) => (
-                              <Card
-                                key={index}
-                                className="p-3 hover:bg-accent/50 cursor-pointer transition-colors"
-                                onClick={() => handleSourceClick(source.path)}
-                              >
-                                <div className="flex items-start gap-2">
-                                  {source.path.startsWith('http') ? (
-                                    <ExternalLink className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
-                                  ) : (
-                                    <FileText className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-medium truncate">{source.path}</div>
-                                    {source.citations && source.citations.length > 0 && (
-                                      <div className="mt-2 space-y-1">
-                                        {source.citations.map((citation, i) => (
-                                          <div
-                                            key={i}
-                                            className="text-xs text-muted-foreground bg-muted/50 p-2 rounded"
-                                          >
-                                            &ldquo;{citation}&rdquo;
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </Card>
-                            ))}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
-                  </div>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
-      </ScrollArea>
-
-      {/* Follow-up Question Input */}
-      <form
-        onSubmit={handleFollowUpSubmit}
-        className="sticky bottom-0 bg-background/95 backdrop-blur-sm p-4 border-t shadow-lg"
-      >
-        <div className="flex gap-2">
-          <Input
-            ref={inputRef}
-            type="text"
-            placeholder="Ask a follow-up question..."
-            value={followUpQuestion}
-            onChange={(e) => setFollowUpQuestion(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            className="flex-1"
-          />
-          <Button type="submit" size="icon" disabled={isLoading || !followUpQuestion.trim()}>
-            <Send className="h-4 w-4" />
+    <Card className="h-full flex flex-col overflow-hidden bg-background/95">
+      <CardContent className="flex-1 p-0 flex flex-col h-full">
+        <div className="flex-none flex items-center justify-between p-4 border-b">
+          <h2 className="text-lg font-semibold">AI Responses</h2>
+          <Button variant="ghost" size="icon" onClick={onNewChat} title="New Chat">
+            <Plus className="h-4 w-4" />
           </Button>
         </div>
-      </form>
-    </div>
+        <ScrollArea 
+          className="flex-1 min-h-0"
+          onScroll={handleScroll}
+          ref={scrollAreaRef}
+          style={{
+            maskImage: 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
+            WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
+          }}
+        >
+          <div className="px-4 py-2">
+            {conversations.map((response, index) => (
+              <ResponseItem 
+                key={index} 
+                response={response} 
+                createStickyNote={createStickyNote}
+                ref={index === conversations.length - 1 ? lastMessageRef : undefined}
+              />
+            ))}
+            {isLoading && (
+              <div className="flex items-center justify-center p-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+        
+        <form
+          onSubmit={handleFollowUpSubmit}
+          className="flex-none p-4 border-t bg-background/95 backdrop-blur-sm"
+        >
+          <div className="flex gap-2">
+            <Input
+              ref={inputRef}
+              type="text"
+              placeholder="Ask a follow-up question..."
+              value={followUpQuestion}
+              onChange={(e) => setFollowUpQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              className="flex-1"
+            />
+            <Button type="submit" size="icon" disabled={isLoading || !followUpQuestion.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
 
