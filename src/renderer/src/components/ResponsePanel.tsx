@@ -2,10 +2,11 @@ import React, { useRef, useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
-import { Loader2, Plus, Send } from 'lucide-react'
+import { Loader2, Plus, Send, FileText, ExternalLink } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { useDrag } from 'react-dnd'
 import { Input } from '@/components/ui/input'
+import { trpcClient } from '../util/trpc-client'
 
 interface ResponsePanelProps {
   conversations: AIResponse[]
@@ -19,6 +20,13 @@ interface ResponsePanelProps {
     result: { text: string; metadata: any },
     position: { x: number; y: number }
   ) => void
+  dispatch: React.Dispatch<{
+    type: 'START_SEARCH' | 'SEARCH_SUCCESS' | 'SEARCH_ERROR' | 'START_CHAT' | 'CHAT_COMPLETE' | 'RESET'
+    payload?: any
+  }>
+  setSearchResults: React.Dispatch<React.SetStateAction<SearchResult[]>>
+  setShowResults: React.Dispatch<React.SetStateAction<boolean>>
+  filterOutStickyNotes: (results: SearchResult[]) => SearchResult[]
 }
 
 interface AIResponse {
@@ -30,6 +38,40 @@ interface AIResponse {
     preview?: string
     citations?: string[]
   }>
+  commit?: {
+    hash: string
+    message: string
+    diff: string
+  }
+}
+
+const handlePathClick = async (path: string, e: React.MouseEvent): Promise<void> => {
+  e.preventDefault()
+  e.stopPropagation()
+
+  if (path.startsWith('http')) {
+    window.open(path, '_blank')
+  } else {
+    try {
+      await trpcClient.document.open.mutate(path)
+    } catch (error) {
+      console.error('Failed to open document:', error)
+    }
+  }
+}
+
+const MarkdownLink = ({ href, children }: { href?: string; children: React.ReactNode }) => {
+  if (!href) return <>{children}</>
+
+  return (
+    <a
+      href="#"
+      onClick={(e) => handlePathClick(href, e)}
+      className="text-primary hover:underline hover:text-primary/80 transition-colors"
+    >
+      {children}
+    </a>
+  )
 }
 
 const ResponseItem = React.forwardRef<
@@ -84,38 +126,62 @@ const ResponseItem = React.forwardRef<
 
   return (
     <div ref={setRefs} style={{ opacity: isDragging ? 0.5 : 1 }} className="space-y-4 p-4">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium">{response.question}</h3>
-          <span className="text-xs text-muted-foreground">
-            {new Date(response.timestamp).toLocaleString()}
-          </span>
-        </div>
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <ReactMarkdown>{response.answer}</ReactMarkdown>
-        </div>
-        {response.sources && response.sources.length > 0 && (
-          <div className="mt-4">
-            <h4 className="text-sm font-medium mb-2">Sources:</h4>
-            <ul className="text-sm space-y-1">
-              {response.sources.map((source, index) => (
-                <li key={index}>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      // Handle source click
-                    }}
-                    className="text-blue-500 hover:underline"
-                  >
-                    {source.path}
-                  </a>
-                </li>
-              ))}
-            </ul>
+      <Card className="hover:bg-accent/50 transition-all duration-200 rounded-xl overflow-hidden backdrop-blur-sm bg-background/95">
+        <CardContent className="p-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium">{response.question}</h3>
+              <span className="text-xs text-muted-foreground">
+                {new Date(response.timestamp).toLocaleString()}
+              </span>
+            </div>
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown
+                components={{
+                  a: MarkdownLink
+                }}
+              >
+                {response.answer}
+              </ReactMarkdown>
+            </div>
+            
+            {response.commit && (
+              <div className="mt-4 space-y-2">
+                <h4 className="text-sm font-medium">Commit Changes:</h4>
+                <div className="bg-muted p-2 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm">
+                    <code className="text-xs">{response.commit.hash.slice(0, 7)}</code>
+                    <span>{response.commit.message}</span>
+                  </div>
+                  <div className="mt-2">
+                    <ReactMarkdown className="text-sm">{response.commit.diff}</ReactMarkdown>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {response.sources && response.sources.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-medium mb-2">Sources:</h4>
+                <ul className="text-sm space-y-1">
+                  {response.sources.map((source, index) => (
+                    <li key={index} className="flex items-center gap-2">
+                      <FileText className="h-3 w-3" />
+                      <a
+                        href="#"
+                        onClick={(e) => handlePathClick(source.path, e)}
+                        className="text-primary hover:underline hover:text-primary/80 transition-colors"
+                      >
+                        {source.path}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
 })
@@ -125,7 +191,11 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
   isLoading,
   onNewChat,
   createStickyNote,
-  askAIQuestion
+  askAIQuestion,
+  dispatch,
+  setSearchResults,
+  setShowResults,
+  filterOutStickyNotes
 }) => {
   const [followUpQuestion, setFollowUpQuestion] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -153,8 +223,37 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
     e.preventDefault()
     if (!followUpQuestion.trim() || isLoading) return
 
-    setAutoScroll(true) // Re-enable auto-scroll when sending new message
-    await askAIQuestion(followUpQuestion)
+    setAutoScroll(true)
+    dispatch({ type: 'START_SEARCH', payload: { query: followUpQuestion } })
+
+    try {
+      const quickResults = await trpcClient.search.quick.query(followUpQuestion)
+      
+      if (quickResults.length === 0) {
+        setShowResults(false)
+        dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
+        return
+      }
+
+      const filteredResults = filterOutStickyNotes(quickResults)
+      setSearchResults(filteredResults)
+      setShowResults(true)
+
+      dispatch({ 
+        type: 'START_CHAT', 
+        payload: { 
+          query: followUpQuestion, 
+          results: filteredResults 
+        } 
+      })
+
+      await askAIQuestion(followUpQuestion)
+      dispatch({ type: 'CHAT_COMPLETE' })
+    } catch (error) {
+      console.error('Search or chat failed:', error)
+      dispatch({ type: 'SEARCH_ERROR', payload: String(error) })
+    }
+
     setFollowUpQuestion('')
   }
 
@@ -163,7 +262,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
   }
 
   return (
-    <Card className="h-full flex flex-col overflow-hidden bg-background/95">
+    <Card className="h-full flex flex-col overflow-hidden bg-background/95 rounded-xl">
       <CardContent className="flex-1 p-0 flex flex-col h-full">
         <div className="flex-none flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">AI Responses</h2>

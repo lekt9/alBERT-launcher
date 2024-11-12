@@ -25,18 +25,18 @@ function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
 
   mainWindow = new BrowserWindow({
-    x: currentScreen.bounds.x,
-    y: currentScreen.bounds.y,
-    width: currentScreen.bounds.width,
-    height: currentScreen.bounds.height,
+    x: currentScreen.bounds.x + (currentScreen.bounds.width - 1200) / 2,
+    y: currentScreen.bounds.y + (currentScreen.bounds.height - 700) / 2,
+    width: 1200,
+    height: 700,
     alwaysOnTop: true,
     focusable: true,
-    transparent: true,
     frame: false,
-    resizable: false,
+    resizable: true,
     roundedCorners: true,
     show: false,
     autoHideMenuBar: true,
+    transparent: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -45,6 +45,8 @@ function createWindow(): void {
       devTools: true
     }
   })
+
+  mainWindow.setMinimumSize(600, 400)
 
   // mainWindow.webContents.openDevTools()
   // // Set up tRPC handler

@@ -1378,7 +1378,7 @@ Keep your response focused and concise.`,
           createStickyNote(item.result, position);
         }
       }}>
-        <div className="h-screen w-screen flex items-center justify-center bg-background/0 backdrop-blur-sm">
+        <div className="h-screen w-screen flex items-center justify-center">
           {/* Add Onboarding at the top level */}
           {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
 
@@ -1474,6 +1474,10 @@ Keep your response focused and concise.`,
                         isLoading={isLoading}
                         onNewChat={clearChat}
                         createStickyNote={createStickyNote}
+                        dispatch={dispatch}
+                        setSearchResults={setSearchResults}
+                        setShowResults={setShowResults}
+                        filterOutStickyNotes={filterOutStickyNotes}
                       />
                     </CardContent>
                   </Card>
