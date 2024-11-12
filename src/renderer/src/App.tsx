@@ -1319,7 +1319,7 @@ Keep your response focused and concise.`
           {activePanel === 'settings' && (
             <Suspense fallback={<div>Loading Settings...</div>}>
               <Card
-                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
                 style={{ width: 600 }}
               >
                 <CardContent className="p-4 flex flex-col h-[600px]">
@@ -1339,21 +1339,19 @@ Keep your response focused and concise.`
 
           {/* Main Search Card */}
           <Card
-            className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+            className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
             style={{ width: 600 }}
             data-highlight="search-container"
           >
             <CardContent
               className={cn(
                 'p-0 flex flex-col',
-                // Remove any padding/spacing when no results
                 showResults && searchResults.length > 0 ? 'h-[600px]' : 'h-auto'
               )}
             >
               <div
                 className={cn(
                   'flex flex-col',
-                  // Remove the height and any spacing when no results
                   showResults && searchResults.length > 0 ? 'h-full' : 'h-auto'
                 )}
               >
@@ -1396,7 +1394,7 @@ Keep your response focused and concise.`
           {conversations.length > 0 && activePanel === 'response' && (
             <Suspense fallback={<div>Loading Response Panel...</div>}>
               <Card
-                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200"
+                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
                 style={{ width: 600 }}
                 data-highlight="response-panel"
               >

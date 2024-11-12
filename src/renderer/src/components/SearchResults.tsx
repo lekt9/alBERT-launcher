@@ -133,7 +133,7 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
 
     return (
       <div className={cn(
-        'flex-1 overflow-hidden',
+        'flex-1 overflow-hidden rounded-b-xl',
         searchResults.length === 0 ? 'h-0' : ''
       )}>
         <ScrollArea className={cn(
@@ -176,8 +176,8 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
               >
                 <Card
                   className={cn(
-                    'hover:bg-accent/50 transition-all duration-200',
-                    index === selectedIndex ? 'bg-accent border-primary' : ''
+                    'hover:bg-accent/50 transition-all duration-200 rounded-xl overflow-hidden backdrop-blur-sm',
+                    index === selectedIndex ? 'bg-accent/95 border-primary' : 'bg-background/95'
                   )}
                   onClick={() => handleResultClick(result)}
                 >
@@ -238,7 +238,7 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
           })}
         </ScrollArea>
         {searchResults.length > 0 && (
-          <div className="flex items-center justify-between mt-2 px-4 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between mt-2 px-4 pb-2 text-xs text-muted-foreground bg-background/95 backdrop-blur-sm rounded-b-xl">
             <span>{selectedIndex === -1 ? 'Press → to pin to context' : 'Press ↑ to select'}</span>
             <span>Drag items to create sticky notes</span>
           </div>

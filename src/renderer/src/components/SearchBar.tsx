@@ -32,7 +32,7 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
   }));
 
   return (
-    <div className="relative">
+    <div className="relative rounded-t-xl overflow-hidden">
       <Search 
         className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground h-5 w-5" 
       />
@@ -42,7 +42,7 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(({
         value={query}
         onChange={handleInputChange}
         placeholder={query ? 'Ask a follow-up question...' : 'Search...'}
-        className="w-full pl-12 pr-24 py-4 text-xl border-none focus-visible:ring-0 rounded-none bg-background text-foreground"
+        className="w-full pl-12 pr-24 py-4 text-xl border-none focus-visible:ring-0 bg-background/95 backdrop-blur-sm text-foreground"
       />
       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
         <div className="flex items-center gap-2">
