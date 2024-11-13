@@ -722,91 +722,34 @@ Keep your response focused and concise.`,
   const [searchState, dispatch] = useReducer(searchReducer, { status: 'idle' });
 
   // Update debouncedSearch to not handle chat
-  const debouncedSearch = useCallback(
-    async (searchQuery: string): Promise<boolean> => {
-      if (!searchQuery.trim()) {
-        dispatch({ type: 'RESET' });
-        setShowResults(false);
-        setSearchResults([]);
-        setIsLoading(false);
-        return false;
-      }
-
-      setIsLoading(true);
-      dispatch({ type: 'START_SEARCH', payload: { query: searchQuery } });
-
-      try {
-        // Only use quick search
-        const quickResults = await trpcClient.search.quick.query(searchQuery);
-
-        if (quickResults.length === 0) {
+  const debouncedSearch = useMemo(
+    () =>
+      debounce(async (query: string) => {
+        if (!query.trim()) {
+          setSearchResults([]);
           setShowResults(false);
-          dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' });
-          setIsLoading(false);
-          return false;
+          setIsContextVisible(false);
+          return;
         }
 
-        // Filter and show quick results immediately
-        const filteredQuickResults = filterOutStickyNotes(quickResults);
-        setSearchResults(filteredQuickResults);
-        setShowResults(filteredQuickResults.length > 0);
-        dispatch({
-          type: 'SEARCH_SUCCESS',
-          payload: { query: searchQuery, results: filteredQuickResults },
-        });
+        dispatch({ type: 'START_SEARCH', payload: query });
 
-        // Start background fetch of full content
-        filteredQuickResults.forEach(async (result) => {
-          try {
-            if (
-              result.metadata.sourceType === 'web' &&
-              result.text.length > 500
-            ) {
-              return;
-            }
-
-            const response = await trpcClient.content.fetch.query(
-              result.metadata.path
-            );
-            if (response.content) {
-              setSearchResults((prev) =>
-                prev.map((r) =>
-                  r.metadata.path === result.metadata.path
-                    ? { ...r, text: response.content }
-                    : r
-                )
-              );
-            }
-          } catch (error) {
-            console.error('Error fetching full content:', error);
-          }
-        });
-
-        // Cache the results
-        setSearchCache((prev) => {
-          const newCache = [
-            {
-              query: searchQuery,
-              results: filteredQuickResults,
-              timestamp: Date.now(),
-            },
-            ...prev.filter((item) => item.query !== searchQuery),
-          ].slice(0, 5);
-          return newCache;
-        });
-
-        setIsLoading(false);
-        return true;
-      } catch (error) {
-        console.error('Search failed:', error);
-        setSearchResults([]);
-        setShowResults(false);
-        dispatch({ type: 'SEARCH_ERROR', payload: String(error) });
-        setIsLoading(false);
-        return false;
-      }
-    },
-    [getCachedResults, stickyNotes]
+        try {
+          const quickResults = await trpcClient.search.quick.query(query);
+          const filteredResults = filterOutStickyNotes(quickResults);
+          setSearchResults(filteredResults);
+          setShowResults(filteredResults.length > 0);
+          setIsContextVisible(filteredResults.length > 0);
+          dispatch({
+            type: 'SEARCH_SUCCESS',
+            payload: { query, results: filteredResults },
+          });
+        } catch (error) {
+          console.error('Search failed:', error);
+          dispatch({ type: 'SEARCH_ERROR', payload: String(error) });
+        }
+      }, 300),
+    []
   );
 
   // Update handleInputChange to debounce properly
@@ -1390,6 +1333,8 @@ Keep your response focused and concise.`,
   // Add this state near other state declarations
   const [showChat, setShowChat] = useState(false);
   const [isBrowserMode, setIsBrowserMode] = useState(false);
+  const [isBrowserVisible, setIsBrowserVisible] = useState(false);
+  const [isContextVisible, setIsContextVisible] = useState(false);
 
   // Add this effect to show chat when search starts
   useEffect(() => {
@@ -1421,14 +1366,29 @@ Keep your response focused and concise.`,
       handleUrlChange(processedUrl);
       setIsBrowserMode(true);
       setShowChat(false); // Close chat panel for URLs
+      setShowResults(false); // Hide results for URLs
+      setIsContextVisible(false); // Hide context panel for URLs
     } else {
       // Handle as search query
       if (value.trim()) {
         handleInputChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>);
         debouncedSearch(value);
+        setShowResults(true); // Show results for search queries
+        setIsContextVisible(true); // Show context panel for search queries
       }
     }
   };
+
+  // Add effect to handle search results visibility
+  useEffect(() => {
+    if (searchResults.length > 0) {
+      setShowResults(true);
+      setIsContextVisible(true);
+    } else {
+      setShowResults(false);
+      setIsContextVisible(false);
+    }
+  }, [searchResults.length]);
 
   return (
     <TooltipProvider>
@@ -1461,6 +1421,8 @@ Keep your response focused and concise.`,
               filterOutStickyNotes={filterOutStickyNotes}
               showChat={showChat}
               webviewRef={webviewRef}
+              isBrowserVisible={isBrowserVisible}
+              isContextVisible={isContextVisible}
             />
 
             {/* Unified Bar */}
@@ -1491,6 +1453,13 @@ Keep your response focused and concise.`,
               setSearchResults={setSearchResults}
               setShowResults={setShowResults}
               filterOutStickyNotes={filterOutStickyNotes}
+              isBrowserVisible={isBrowserVisible}
+              setIsBrowserVisible={setIsBrowserVisible}
+              isContextVisible={isContextVisible}
+              setIsContextVisible={setIsContextVisible}
+              showResults={showResults}
+              searchResults={searchResults}
+              selectedIndex={selectedIndex}
             />
 
             {/* Sticky Notes Layer */}

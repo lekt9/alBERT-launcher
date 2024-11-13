@@ -1,7 +1,7 @@
-import React, { forwardRef, useState } from 'react';
+import React, { forwardRef, useState, useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Bot, FastForward, ArrowLeft, ArrowRight, RotateCcw, Globe, X, Loader2, FileText, GripHorizontal } from 'lucide-react';
+import { Search, Bot, FastForward, ArrowLeft, ArrowRight, RotateCcw, Globe, X, Loader2, FileText, GripHorizontal, PanelLeftOpen, Clock } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
@@ -10,6 +10,25 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import ReactMarkdown from 'react-markdown';
 import { trpcClient } from '../util/trpc-client';
 import Draggable from 'react-draggable';
+import { useDrag } from 'react-dnd';
+import { Badge } from '@/components/ui/badge';
+
+interface SearchResult {
+  text: string;
+  dist: number;
+  metadata: {
+    path: string;
+    title?: string;
+    created_at: number;
+    modified_at: number;
+    filetype: string;
+    languages: string[];
+    links: string[];
+    owner: string | null;
+    seen_at: number;
+    sourceType?: 'document' | 'web';
+  };
+}
 
 interface UnifiedBarProps {
   query: string;
@@ -25,15 +44,22 @@ interface UnifiedBarProps {
   onSubmit: (value: string, isUrl: boolean) => void;
   title?: string;
   showChat: boolean;
-  conversations: any[];
+  conversations: AIResponse[];
   onNewChat: () => void;
-  createStickyNote: (result: any, position: { x: number; y: number }) => void;
+  createStickyNote: (result: SearchResult, position: { x: number; y: number }) => void;
   isLoading: boolean;
   askAIQuestion: (query: string) => Promise<void>;
   dispatch: any;
-  setSearchResults: React.Dispatch<React.SetStateAction<any[]>>;
+  setSearchResults: React.Dispatch<React.SetStateAction<SearchResult[]>>;
   setShowResults: React.Dispatch<React.SetStateAction<boolean>>;
-  filterOutStickyNotes: (results: any[]) => any[];
+  filterOutStickyNotes: (results: SearchResult[]) => SearchResult[];
+  isBrowserVisible: boolean;
+  setIsBrowserVisible: (visible: boolean) => void;
+  isContextVisible: boolean;
+  setIsContextVisible: (visible: boolean) => void;
+  showResults: boolean;
+  searchResults: SearchResult[];
+  selectedIndex: number;
 }
 
 const ResponseItem = ({ response, createStickyNote }: any) => {
@@ -89,6 +115,54 @@ const ResponseItem = ({ response, createStickyNote }: any) => {
   );
 };
 
+const SearchResultCard = ({ result, index, isSelected, onDragEnd }: {
+  result: SearchResult
+  index: number
+  isSelected: boolean
+  onDragEnd: (result: SearchResult, position: { x: number; y: number }) => void
+}) => {
+  const [{ isDragging }, drag] = useDrag({
+    type: 'searchResult',
+    item: { type: 'searchResult', result },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging()
+    }),
+    end: (item, monitor) => {
+      const dropResult = monitor.getDropResult<{ x: number; y: number }>();
+      if (dropResult) {
+        onDragEnd(result, dropResult);
+      }
+    }
+  });
+
+  return (
+    <Card
+      ref={drag}
+      className={cn(
+        'p-3 hover:bg-accent/50 transition-colors cursor-move',
+        isSelected && 'ring-1 ring-primary',
+        isDragging && 'opacity-50'
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <Search className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
+        <div className="space-y-1 min-w-0">
+          <div className="text-sm font-medium truncate">
+            {result.metadata.title || result.metadata.path.split('/').pop()}
+          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {result.text}
+          </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+};
+
 const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   query,
   useAgent,
@@ -109,10 +183,34 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   dispatch,
   setSearchResults,
   setShowResults,
-  filterOutStickyNotes
+  filterOutStickyNotes,
+  isBrowserVisible,
+  setIsBrowserVisible,
+  isContextVisible,
+  setIsContextVisible,
+  showResults,
+  searchResults,
+  selectedIndex,
 }, ref) => {
   const [isChatExpanded, setIsChatExpanded] = useState(true);
+  const [isResultsExpanded, setIsResultsExpanded] = useState(true);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isChatExpanded && scrollContainerRef.current) {
+      const scrollContainer = scrollContainerRef.current;
+      const scrollTimeout = setTimeout(() => {
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollHeight,
+          behavior: 'smooth'
+        });
+      }, 100); // Small delay to ensure content is rendered
+
+      return () => clearTimeout(scrollTimeout);
+    }
+  }, [conversations, isChatExpanded, isLoading]);
 
   const getFirstSentence = (text: string) => {
     const match = text.match(/^[^.!?]+[.!?]/);
@@ -147,37 +245,29 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
       }}
     >
       <div className="fixed w-[600px] z-50" style={{ bottom: '40px', left: '50%', transform: 'translateX(-50%)' }}>
-        {/* Chat Response Panel */}
+        {/* Chat Response Panel - Above prompt bar */}
         <AnimatePresence>
           {showChat && conversations.length > 0 && (
             <motion.div
-              initial={{ height: 52, y: 20 }}
+              initial={{ height: 0, opacity: 0 }}
               animate={{ 
-                height: isChatExpanded ? 'auto' : 52,
-                y: 0,
+                height: isChatExpanded ? '300px' : 52,
+                opacity: 1,
                 transition: {
                   height: {
                     type: "spring",
                     stiffness: 100,
                     damping: 15
-                  },
-                  y: {
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 20
                   }
                 }
               }}
-              exit={{ 
-                height: 52,
-                y: 20,
-                opacity: 0
-              }}
+              exit={{ height: 0, opacity: 0 }}
               onClick={() => setIsChatExpanded(!isChatExpanded)}
-              className="mb-2 overflow-hidden rounded-xl border bg-background/95 backdrop-blur shadow-lg cursor-pointer"
+              style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: '8px' }}
+              className="overflow-hidden rounded-xl border bg-background/95 backdrop-blur shadow-lg cursor-pointer"
             >
               {/* Header/Preview */}
-              <div className="flex items-center p-3 border-b bg-muted/50">
+              <div className="flex items-center p-3 border-b bg-muted/50 sticky top-0 z-10">
                 <div className="flex-1 flex items-center gap-3">
                   <Bot className="h-4 w-4 text-primary shrink-0" />
                   <span className="text-sm font-medium truncate">
@@ -203,9 +293,12 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                 </div>
               </div>
 
-              {/* Expanded Content */}
+              {/* Expanded Content with auto-scroll */}
               {isChatExpanded && (
-                <ScrollArea className="max-h-[400px]">
+                <div 
+                  ref={scrollContainerRef}
+                  className="overflow-y-auto h-[calc(300px-52px)]"
+                >
                   <div className="p-4 space-y-4">
                     {conversations.map((response, index) => (
                       <ResponseItem
@@ -220,52 +313,55 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                       </div>
                     )}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Prompt Bar */}
+        {/* Prompt Bar - Fixed position */}
         <form onSubmit={handleSubmit} className="relative group">
-          <Card className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden">
+          <Card className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 overflow-hidden border rounded-xl">
             {/* Drag Handle */}
             <div className="absolute inset-x-0 top-0 h-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-move drag-handle flex items-center justify-center">
               <GripHorizontal className="h-4 w-4 text-muted-foreground" />
             </div>
 
             <div className="flex items-center gap-2 p-2">
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onNavigate('back')}
-                  disabled={!canGoBack}
-                  type="button"
-                  className="h-8 w-8"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onNavigate('forward')}
-                  disabled={!canGoForward}
-                  type="button"
-                  className="h-8 w-8"
-                >
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onNavigate('reload')}
-                  type="button"
-                  className="h-8 w-8"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                </Button>
-              </div>
+              {/* Navigation Controls - Only show when browser is visible */}
+              {isBrowserVisible && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onNavigate('back')}
+                    disabled={!canGoBack}
+                    type="button"
+                    className="h-8 w-8"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onNavigate('forward')}
+                    disabled={!canGoForward}
+                    type="button"
+                    className="h-8 w-8"
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onNavigate('reload')}
+                    type="button"
+                    className="h-8 w-8"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
 
               <div className="relative flex-1">
                 <Search 
@@ -280,6 +376,18 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                   className="w-full pl-9 pr-20 py-2 text-sm border-none focus-visible:ring-0 bg-muted/50"
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  {/* Browser Toggle moved to the right */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsBrowserVisible(!isBrowserVisible)}
+                    className="h-8 w-8"
+                  >
+                    <Globe className={cn(
+                      "h-4 w-4 transition-colors",
+                      isBrowserVisible && "text-primary"
+                    )} />
+                  </Button>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
                       {useAgent ? (
@@ -300,13 +408,68 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
           </Card>
 
           {/* Title Bumper */}
-          {title && (
-            <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-background/95 shadow-sm border text-xs flex items-center gap-1.5 text-muted-foreground">
+          {title && isBrowserVisible && (
+            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-background/95 shadow-sm border text-xs flex items-center gap-1.5 text-muted-foreground z-50">
               <Globe className="h-3 w-3" />
               <span className="max-w-[300px] truncate">{title}</span>
             </div>
           )}
         </form>
+
+        {/* Search Results Panel - Below prompt bar */}
+        <AnimatePresence>
+          {isContextVisible && showResults && searchResults.length > 0 && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ 
+                height: isResultsExpanded ? '300px' : 52,
+                opacity: 1,
+                transition: {
+                  height: {
+                    type: "spring",
+                    stiffness: 100,
+                    damping: 15
+                  }
+                }
+              }}
+              exit={{ height: 0, opacity: 0 }}
+              onClick={() => setIsResultsExpanded(!isResultsExpanded)}
+              style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '8px' }}
+              className="overflow-hidden rounded-xl border bg-background/95 backdrop-blur shadow-lg cursor-pointer"
+            >
+              <div className="flex items-center justify-between p-3 border-b bg-muted/50 sticky top-0 z-10">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-sm font-medium">
+                    {searchResults[0].metadata.title || searchResults[0].metadata.path.split('/').pop()}
+                  </span>
+                  <Badge variant="secondary" className="text-xs">
+                    {searchResults.length} results
+                  </Badge>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {isResultsExpanded ? 'Click to collapse' : 'Click to expand'}
+                </span>
+              </div>
+
+              {isResultsExpanded && (
+                <ScrollArea className="h-[calc(300px-52px)]">
+                  <div className="p-4 space-y-2">
+                    {searchResults.map((result, index) => (
+                      <SearchResultCard
+                        key={`result-${index}`}
+                        result={result}
+                        index={index}
+                        isSelected={index === selectedIndex}
+                        onDragEnd={createStickyNote}
+                      />
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </Draggable>
   );

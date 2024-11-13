@@ -28,8 +28,8 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     x: currentScreen.bounds.x + (currentScreen.bounds.width - 1200) / 2,
     y: currentScreen.bounds.y + (currentScreen.bounds.height - 700) / 2,
-    width: 1200,
-    height: 700,
+    width: currentScreen.bounds.width,
+    height: currentScreen.bounds.height,
     alwaysOnTop: true,
     focusable: true,
     frame: false,
