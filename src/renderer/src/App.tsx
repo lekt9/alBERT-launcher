@@ -55,6 +55,7 @@ import BrowserWindow from './BrowserWindow';
 import UnifiedBar from '@/components/UnifiedBar';
 import MainView from '@/components/MainView';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useWebview } from './hooks/useWebview';
 
 interface SearchResult {
   text: string;
@@ -1374,15 +1375,21 @@ Keep your response focused and concise.`,
     );
   };
 
-  // Add these state declarations near your other state declarations
-  const [isBrowserMode, setIsBrowserMode] = useState(false);
-  const [url, setUrl] = useState('https://google.com');
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [canGoForward, setCanGoForward] = useState(false);
-  const webviewRef = useRef<Electron.WebviewTag>(null);
+  // Add webview state management
+  const {
+    webviewRef,
+    canGoBack,
+    canGoForward,
+    pageTitle,
+    currentUrl: url,
+    handleNavigate,
+    handleUrlChange,
+    handleNavigation
+  } = useWebview();
 
   // Add this state near other state declarations
   const [showChat, setShowChat] = useState(false);
+  const [isBrowserMode, setIsBrowserMode] = useState(false);
 
   // Add this effect to show chat when search starts
   useEffect(() => {
@@ -1403,7 +1410,7 @@ Keep your response focused and concise.`,
     setIsBrowserMode(false);
   }, []);
 
-  // Add this handler function near your other handlers
+  // Update the handleUnifiedSubmit function
   const handleUnifiedSubmit = (value: string, isUrl: boolean) => {
     if (isUrl) {
       // Handle as URL
@@ -1411,7 +1418,7 @@ Keep your response focused and concise.`,
       if (!value.startsWith('http://') && !value.startsWith('https://')) {
         processedUrl = `https://${value}`;
       }
-      setUrl(processedUrl);
+      handleUrlChange(processedUrl);
       setIsBrowserMode(true);
       setShowChat(false); // Close chat panel for URLs
     } else {
@@ -1423,63 +1430,6 @@ Keep your response focused and concise.`,
     }
   };
 
-  // Update the webview ref handling
-  useEffect(() => {
-    const webview = webviewRef.current;
-    if (webview) {
-      const handleNavigationStateChange = () => {
-        const currentUrl = webview.getURL();
-        if (currentUrl !== 'about:blank') {
-          setCanGoBack(webview.canGoBack());
-          setCanGoForward(webview.canGoForward());
-          setQuery(currentUrl); // Update the URL in the prompt bar
-        }
-      };
-
-      webview.addEventListener('did-navigate', handleNavigationStateChange);
-      webview.addEventListener('did-navigate-in-page', handleNavigationStateChange);
-
-      return () => {
-        webview.removeEventListener('did-navigate', handleNavigationStateChange);
-        webview.removeEventListener('did-navigate-in-page', handleNavigationStateChange);
-      };
-    }
-  }, [webviewRef.current]);
-
-  // Update the UnifiedBar props in the return statement
-  <UnifiedBar
-    ref={searchBarRef}
-    query={query}
-    setQuery={setQuery}
-    isLoading={isLoading}
-    useAgent={useAgent}
-    handleAgentToggle={(checked) => {
-      setUseAgent(checked);
-      localStorage.setItem('use-agent', JSON.stringify(checked));
-    }}
-    handleInputChange={handleInputChange}
-    onNavigate={(direction) => {
-      if (webviewRef.current) {
-        switch (direction) {
-          case 'back':
-            webviewRef.current.goBack();
-            break;
-          case 'forward':
-            webviewRef.current.goForward();
-            break;
-          case 'reload':
-            webviewRef.current.reload();
-            break;
-        }
-      }
-    }}
-    canGoBack={canGoBack}
-    canGoForward={canGoForward}
-    isBrowserMode={isBrowserMode}
-    onSubmit={handleUnifiedSubmit}
-  />
-
-  // Update the return statement to include Onboarding
   return (
     <TooltipProvider>
       <DndProvider backend={HTML5Backend}>
@@ -1495,10 +1445,7 @@ Keep your response focused and concise.`,
             <MainView
               isBrowserMode={isBrowserMode}
               url={url}
-              onNavigate={(newUrl) => {
-                setUrl(newUrl);
-                setIsBrowserMode(true);
-              }}
+              onNavigate={handleNavigate}
               showResults={showResults}
               searchResults={searchResults}
               selectedIndex={selectedIndex}
@@ -1513,6 +1460,7 @@ Keep your response focused and concise.`,
               setShowResults={setShowResults}
               filterOutStickyNotes={filterOutStickyNotes}
               showChat={showChat}
+              webviewRef={webviewRef}
             />
 
             {/* Unified Bar */}
@@ -1527,25 +1475,22 @@ Keep your response focused and concise.`,
                 localStorage.setItem('use-agent', JSON.stringify(checked));
               }}
               handleInputChange={handleInputChange}
-              onNavigate={(direction) => {
-                if (webviewRef.current) {
-                  switch (direction) {
-                    case 'back':
-                      webviewRef.current.goBack();
-                      break;
-                    case 'forward':
-                      webviewRef.current.goForward();
-                      break;
-                    case 'reload':
-                      webviewRef.current.reload();
-                      break;
-                  }
-                }
-              }}
+              onNavigate={handleNavigation}
               canGoBack={canGoBack}
               canGoForward={canGoForward}
               isBrowserMode={isBrowserMode}
               onSubmit={handleUnifiedSubmit}
+              title={pageTitle}
+              showChat={showChat}
+              conversations={conversations}
+              onNewChat={handleNewChat}
+              createStickyNote={createStickyNote}
+              isLoading={isLoading}
+              askAIQuestion={askAIQuestion}
+              dispatch={dispatch}
+              setSearchResults={setSearchResults}
+              setShowResults={setShowResults}
+              filterOutStickyNotes={filterOutStickyNotes}
             />
 
             {/* Sticky Notes Layer */}
