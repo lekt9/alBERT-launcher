@@ -51,6 +51,10 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import BrowserWindow from './BrowserWindow';
+import UnifiedBar from '@/components/UnifiedBar';
+import MainView from '@/components/MainView';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 interface SearchResult {
   text: string;
@@ -1370,175 +1374,227 @@ Keep your response focused and concise.`,
     );
   };
 
+  // Add these state declarations near your other state declarations
+  const [isBrowserMode, setIsBrowserMode] = useState(false);
+  const [url, setUrl] = useState('https://google.com');
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  const webviewRef = useRef<Electron.WebviewTag>(null);
+
+  // Add this state near other state declarations
+  const [showChat, setShowChat] = useState(false);
+
+  // Add this effect to show chat when search starts
+  useEffect(() => {
+    if (searchState.status === 'searching' || searchState.status === 'chatting') {
+      setShowChat(true);
+    }
+  }, [searchState.status]);
+
+  // Add this near your other state and handler functions
+  const handleNewChat = useCallback(() => {
+    setConversations([]);
+    setQuery('');
+    setSearchResults([]);
+    setShowResults(false);
+    setSearchSteps([]);
+    dispatch({ type: 'RESET' });
+    setShowChat(false);
+    setIsBrowserMode(false);
+  }, []);
+
+  // Add this handler function near your other handlers
+  const handleUnifiedSubmit = (value: string, isUrl: boolean) => {
+    if (isUrl) {
+      // Handle as URL
+      let processedUrl = value;
+      if (!value.startsWith('http://') && !value.startsWith('https://')) {
+        processedUrl = `https://${value}`;
+      }
+      setUrl(processedUrl);
+      setIsBrowserMode(true);
+      setShowChat(false); // Close chat panel for URLs
+    } else {
+      // Handle as search query
+      if (value.trim()) {
+        handleInputChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>);
+        debouncedSearch(value);
+      }
+    }
+  };
+
+  // Update the webview ref handling
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (webview) {
+      const handleNavigationStateChange = () => {
+        const currentUrl = webview.getURL();
+        if (currentUrl !== 'about:blank') {
+          setCanGoBack(webview.canGoBack());
+          setCanGoForward(webview.canGoForward());
+          setQuery(currentUrl); // Update the URL in the prompt bar
+        }
+      };
+
+      webview.addEventListener('did-navigate', handleNavigationStateChange);
+      webview.addEventListener('did-navigate-in-page', handleNavigationStateChange);
+
+      return () => {
+        webview.removeEventListener('did-navigate', handleNavigationStateChange);
+        webview.removeEventListener('did-navigate-in-page', handleNavigationStateChange);
+      };
+    }
+  }, [webviewRef.current]);
+
+  // Update the UnifiedBar props in the return statement
+  <UnifiedBar
+    ref={searchBarRef}
+    query={query}
+    setQuery={setQuery}
+    isLoading={isLoading}
+    useAgent={useAgent}
+    handleAgentToggle={(checked) => {
+      setUseAgent(checked);
+      localStorage.setItem('use-agent', JSON.stringify(checked));
+    }}
+    handleInputChange={handleInputChange}
+    onNavigate={(direction) => {
+      if (webviewRef.current) {
+        switch (direction) {
+          case 'back':
+            webviewRef.current.goBack();
+            break;
+          case 'forward':
+            webviewRef.current.goForward();
+            break;
+          case 'reload':
+            webviewRef.current.reload();
+            break;
+        }
+      }
+    }}
+    canGoBack={canGoBack}
+    canGoForward={canGoForward}
+    isBrowserMode={isBrowserMode}
+    onSubmit={handleUnifiedSubmit}
+  />
+
   // Update the return statement to include Onboarding
   return (
-    <DndProvider backend={HTML5Backend}>
-      <DropArea onDrop={(item, position) => {
-        if (item.type === 'searchResult') {
-          createStickyNote(item.result, position);
-        }
-      }}>
-        <div className="h-screen w-screen flex items-center justify-center">
-          {/* Add Onboarding at the top level */}
-          {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
+    <TooltipProvider>
+      <DndProvider backend={HTML5Backend}>
+        <DropArea onDrop={(item, position) => {
+          if (item.type === 'searchResult') {
+            createStickyNote(item.result, position);
+          }
+        }}>
+          <div className="h-screen w-screen flex flex-col">
+            {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
 
-          <div className="flex flex-col" data-highlight="search-container">
-            <div className="flex gap-4 transition-all duration-200">
-              {/* Settings Panel */}
-              {activePanel === 'settings' && (
-                <Suspense fallback={<div>Loading Settings...</div>}>
-                  <Card
-                    className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
-                    style={{ width: 600 }}
-                  >
-                    <CardContent className="p-4 flex flex-col h-[600px]">
-                      <SettingsPanel
-                        isPrivate={isPrivate}
-                        setIsPrivate={setIsPrivate}
-                        privateSettings={privateSettings}
-                        publicSettings={publicSettings}
-                        setPrivateSettings={setPrivateSettings}
-                        setPublicSettings={setPublicSettings}
-                        setActivePanel={setActivePanel}
-                      />
-                    </CardContent>
-                  </Card>
-                </Suspense>
-              )}
-
-              {/* Main Search Card */}
-              <Card
-                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
-                style={{ width: 600 }}
-                data-highlight="search-container"
-              >
-                <CardContent
-                  className={cn(
-                    'p-0 flex flex-col',
-                    showResults && searchResults.length > 0 ? 'h-[600px]' : 'h-auto'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'flex flex-col',
-                      showResults && searchResults.length > 0 ? 'h-full' : 'h-auto'
-                    )}
-                  >
-                    {/* Search Bar Section */}
-                    {searchSteps.length > 0 && (
-                      <div className="px-4 pt-4">
-                        <SearchBadges steps={searchSteps} />
-                      </div>
-                    )}
-                    <SearchBar
-                      ref={searchBarRef}
-                      query={query}
-                      setQuery={setQuery}
-                      isLoading={isLoading}
-                      useAgent={useAgent}
-                      handleAgentToggle={(checked) => {
-                        setUseAgent(checked);
-                        localStorage.setItem('use-agent', JSON.stringify(checked));
-                      }}
-                      handleInputChange={handleInputChange}
-                      data-highlight="search-input"
-                    />
-
-                    {/* Results Section */}
-                    {showResults && (
-                      <SearchResults
-                        searchResults={searchResults}
-                        selectedIndex={selectedIndex}
-                        rankedChunks={rankedChunks}
-                        createStickyNote={createStickyNote}
-                        data-highlight="search-results"
-                      />
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* AI Response Panel */}
-              {conversations.length > 0 && activePanel === 'response' && (
-                <Suspense fallback={<div>Loading Response Panel...</div>}>
-                  <Card
-                    className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
-                    style={{ width: 600 }}
-                    data-highlight="response-panel"
-                  >
-                    <CardContent className="p-4 flex flex-col h-[600px]">
-                      <ResponsePanel
-                        conversations={conversations}
-                        addAIResponseToContext={() => {}}
-                        askAIQuestion={askAIQuestion}
-                        isLoading={isLoading}
-                        onNewChat={clearChat}
-                        createStickyNote={createStickyNote}
-                        dispatch={dispatch}
-                        setSearchResults={setSearchResults}
-                        setShowResults={setShowResults}
-                        filterOutStickyNotes={filterOutStickyNotes}
-                      />
-                    </CardContent>
-                  </Card>
-                </Suspense>
-              )}
-            </div>
-
-            <KeyboardShortcuts
-              showDocument={activePanel === 'document'}
-              activePanel={activePanel}
-              data-highlight="keyboard-shortcuts"
+            {/* Main Content Area */}
+            <MainView
+              isBrowserMode={isBrowserMode}
+              url={url}
+              onNavigate={(newUrl) => {
+                setUrl(newUrl);
+                setIsBrowserMode(true);
+              }}
+              showResults={showResults}
+              searchResults={searchResults}
+              selectedIndex={selectedIndex}
+              rankedChunks={rankedChunks}
+              createStickyNote={createStickyNote}
+              conversations={conversations}
+              isLoading={isLoading}
+              onNewChat={handleNewChat}
+              askAIQuestion={askAIQuestion}
+              dispatch={dispatch}
+              setSearchResults={setSearchResults}
+              setShowResults={setShowResults}
+              filterOutStickyNotes={filterOutStickyNotes}
+              showChat={showChat}
             />
-          </div>
 
-          {/* Sticky Notes Layer */}
-          <AnimatePresence>
-            {stickyNotes.map((note) => (
-              <StickyNoteComponent
-                key={note.id}
-                note={note}
-                onClose={(id) => {
-                  setStickyNotes((prev) => prev.filter((n) => n.id !== id));
-                }}
-                onDrag={(id, position) => {
-                  // Direct update without requestAnimationFrame
-                  setStickyNotes((prev) =>
-                    prev.map((n) =>
-                      n.id === id
-                        ? {
-                            ...n,
-                            position: {
-                              x: Math.max(0, Math.min(window.innerWidth - 384, position.x)),
-                              y: Math.max(0, Math.min(window.innerHeight - 400, position.y)),
-                            },
-                          }
-                        : n
-                    )
-                  );
-                }}
-                onEdit={(id, newText) => {
-                  setStickyNotes((prev) =>
-                    prev.map((n) =>
-                      n.id === id
-                        ? {
-                            ...n,
-                            text: newText,
-                            metadata: {
-                              ...n.metadata,
-                              modified_at: Date.now() / 1000,
-                            },
-                          }
-                        : n
-                    )
-                  );
-                }}
-              />
-            ))}
-          </AnimatePresence>
-        </div>
-      </DropArea>
-    </DndProvider>
+            {/* Unified Bar */}
+            <UnifiedBar
+              ref={searchBarRef}
+              query={query}
+              setQuery={setQuery}
+              isLoading={isLoading}
+              useAgent={useAgent}
+              handleAgentToggle={(checked) => {
+                setUseAgent(checked);
+                localStorage.setItem('use-agent', JSON.stringify(checked));
+              }}
+              handleInputChange={handleInputChange}
+              onNavigate={(direction) => {
+                if (webviewRef.current) {
+                  switch (direction) {
+                    case 'back':
+                      webviewRef.current.goBack();
+                      break;
+                    case 'forward':
+                      webviewRef.current.goForward();
+                      break;
+                    case 'reload':
+                      webviewRef.current.reload();
+                      break;
+                  }
+                }
+              }}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              isBrowserMode={isBrowserMode}
+              onSubmit={handleUnifiedSubmit}
+            />
+
+            {/* Sticky Notes Layer */}
+            <AnimatePresence>
+              {stickyNotes.map((note) => (
+                <StickyNoteComponent
+                  key={note.id}
+                  note={note}
+                  onClose={(id) => {
+                    setStickyNotes((prev) => prev.filter((n) => n.id !== id));
+                  }}
+                  onDrag={(id, position) => {
+                    setStickyNotes((prev) =>
+                      prev.map((n) =>
+                        n.id === id
+                          ? {
+                              ...n,
+                              position: {
+                                x: Math.max(0, Math.min(window.innerWidth - 384, position.x)),
+                                y: Math.max(0, Math.min(window.innerHeight - 400, position.y)),
+                              },
+                            }
+                          : n
+                      )
+                    );
+                  }}
+                  onEdit={(id, newText) => {
+                    setStickyNotes((prev) =>
+                      prev.map((n) =>
+                        n.id === id
+                          ? {
+                              ...n,
+                              text: newText,
+                              metadata: {
+                                ...n.metadata,
+                                modified_at: Date.now() / 1000,
+                              },
+                            }
+                          : n
+                      )
+                    );
+                  }}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        </DropArea>
+      </DndProvider>
+    </TooltipProvider>
   );
 }
 

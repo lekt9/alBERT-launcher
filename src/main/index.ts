@@ -6,7 +6,8 @@ import {
   screen,
   Tray,
   Menu,
-  nativeImage
+  nativeImage,
+  session
 } from 'electron'
 import { join } from 'node:path'
 import SearchDB from './db'
@@ -42,13 +43,15 @@ function createWindow(): void {
       sandbox: false,
       nodeIntegration: true,
       contextIsolation: true,
-      devTools: true
+      devTools: true,
+      webviewTag: true,
+      webSecurity: true
     }
   })
 
   mainWindow.setMinimumSize(600, 400)
 
-  // mainWindow.webContents.openDevTools()
+  mainWindow.webContents.openDevTools()
   // // Set up tRPC handler
   createIPCHandler({
     router: getRouter(mainWindow),
@@ -61,7 +64,8 @@ function createWindow(): void {
 
   if (!is.dev) {
     mainWindow?.on('blur', () => {
-      mainWindow?.hide()
+      mainWindow?.webContents.send('window-blur');
+      globalShortcut.unregisterAll();
     })
   }
 
@@ -83,6 +87,44 @@ function createWindow(): void {
   mainWindow?.on('closed', () => {
     mainWindow = null
   })
+
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'geolocation', 'notifications', 'fullscreen'];
+    callback(allowedPermissions.includes(permission));
+  });
+
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
+    return true;
+  });
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http: ws:"]
+      }
+    });
+  });
+
+  mainWindow.on('focus', () => {
+    mainWindow?.webContents.send('window-focus');
+    registerShortcuts();
+  });
+
+  function registerShortcuts() {
+    globalShortcut.register('CommandOrControl+F', () => {
+      mainWindow?.webContents.send('find-in-page');
+    });
+  }
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+  });
 }
 
 function openAlBERTFolder(): void {

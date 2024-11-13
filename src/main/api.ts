@@ -99,16 +99,17 @@ export const getRouter = (window: BrowserWindow) => {
         log.info('tRPC Call: document.open', filePath)
         try {
           if (filePath.startsWith('http')) {
-            // Open URLs in default browser
-            await shell.openExternal(filePath)
+            // Send event to renderer to open URL in webview
+            window.webContents.send('open-in-webview', filePath);
+            return true;
           } else {
-            // Open local files
-            await shell.openPath(path.resolve(filePath))
+            // Open local files normally
+            await shell.openPath(path.resolve(filePath));
+            return true;
           }
-          return true
         } catch (error) {
-          log.error('Error opening file:', error)
-          return false
+          log.error('Error opening file:', error);
+          return false;
         }
       })
     }),

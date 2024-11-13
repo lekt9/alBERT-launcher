@@ -10,16 +10,10 @@ import { trpcClient } from '../util/trpc-client'
 
 interface ResponsePanelProps {
   conversations: AIResponse[]
-  addAIResponseToContext: () => void
-  askAIQuestion: (originalQuery: string) => Promise<void>
   isLoading: boolean
   onNewChat: () => void
-  onDragStart?: () => void
-  onDragEnd?: () => void
-  createStickyNote?: (
-    result: { text: string; metadata: any },
-    position: { x: number; y: number }
-  ) => void
+  createStickyNote: (result: SearchResult, position: { x: number; y: number }) => void
+  askAIQuestion: (query: string) => Promise<void>
   dispatch: React.Dispatch<{
     type: 'START_SEARCH' | 'SEARCH_SUCCESS' | 'SEARCH_ERROR' | 'START_CHAT' | 'CHAT_COMPLETE' | 'RESET'
     payload?: any
@@ -50,7 +44,9 @@ const handlePathClick = async (path: string, e: React.MouseEvent): Promise<void>
   e.stopPropagation()
 
   if (path.startsWith('http')) {
-    window.open(path, '_blank')
+    window.dispatchEvent(new CustomEvent('open-in-webview', {
+      detail: { url: path }
+    }))
   } else {
     try {
       await trpcClient.document.open.mutate(path)
