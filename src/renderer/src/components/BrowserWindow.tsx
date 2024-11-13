@@ -1,32 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, forwardRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 
 interface BrowserWindowProps {
   url: string;
   onNavigate: (url: string, title?: string) => void;
 }
 
-const BrowserWindow: React.FC<BrowserWindowProps> = ({ url, onNavigate }) => {
-  const webviewRef = useRef<Electron.WebviewTag>(null);
+const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(({ 
+  url, 
+  onNavigate 
+}, ref) => {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const webview = webviewRef.current;
-    if (!webview) return;
-
-    // Prevent auto-scrolling behavior
-    const preventAutoScroll = (e: Event) => {
-      e.preventDefault();
-    };
-
-    webview.addEventListener('scroll', preventAutoScroll);
+    const webview = ref as React.RefObject<Electron.WebviewTag>;
+    if (!webview.current) return;
 
     const handleDomReady = () => {
       setIsReady(true);
       
-      // Disable focus ring and add smooth scrolling
-      webview.insertCSS(`
+      webview.current?.insertCSS(`
         * {
           outline: none !important;
           scroll-behavior: smooth;
@@ -47,57 +40,71 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ url, onNavigate }) => {
 
     // Handle navigation events
     const handleNavigation = (e: Electron.DidNavigateEvent) => {
-      onNavigate(e.url, webview.getTitle());
+      onNavigate(e.url, webview.current?.getTitle());
     };
 
     // Handle title updates
     const handleTitleUpdate = (e: Electron.PageTitleUpdatedEvent) => {
-      onNavigate(webview.getURL(), e.title);
+      onNavigate(webview.current?.getURL() || '', e.title);
     };
 
-    webview.addEventListener('dom-ready', handleDomReady);
-    webview.addEventListener('did-navigate', handleNavigation);
-    webview.addEventListener('did-navigate-in-page', handleNavigation);
-    webview.addEventListener('page-title-updated', handleTitleUpdate);
+    webview.current.addEventListener('dom-ready', handleDomReady);
+    webview.current.addEventListener('did-navigate', handleNavigation);
+    webview.current.addEventListener('did-navigate-in-page', handleNavigation);
+    webview.current.addEventListener('page-title-updated', handleTitleUpdate);
 
     return () => {
-      webview.removeEventListener('scroll', preventAutoScroll);
-      webview.removeEventListener('dom-ready', handleDomReady);
-      webview.removeEventListener('did-navigate', handleNavigation);
-      webview.removeEventListener('did-navigate-in-page', handleNavigation);
-      webview.removeEventListener('page-title-updated', handleTitleUpdate);
+      if (webview.current) {
+        webview.current.removeEventListener('dom-ready', handleDomReady);
+        webview.current.removeEventListener('did-navigate', handleNavigation);
+        webview.current.removeEventListener('did-navigate-in-page', handleNavigation);
+        webview.current.removeEventListener('page-title-updated', handleTitleUpdate);
+      }
     };
-  }, [onNavigate]);
+  }, [ref, onNavigate]);
 
-  // Handle URL changes after initial load
   useEffect(() => {
-    const webview = webviewRef.current;
-    if (webview && isReady && url && url !== 'about:blank') {
+    const webview = ref as React.RefObject<Electron.WebviewTag>;
+    console.log('BrowserWindow: URL changed:', url);
+    console.log('BrowserWindow: webview ref:', webview.current);
+    
+    if (webview.current && isReady && url && url !== 'about:blank') {
       try {
         const processedUrl = url.startsWith('http') ? url : `https://${url}`;
-        webview.loadURL(processedUrl).catch(() => {
-          // If loading fails, try DuckDuckGo search
+        console.log('BrowserWindow: Loading URL:', processedUrl);
+        webview.current.loadURL(processedUrl).catch((error) => {
+          console.error('BrowserWindow: Error loading URL:', error);
           if (!url.includes('duckduckgo.com')) {
-            webview.loadURL(`https://duckduckgo.com/?q=${encodeURIComponent(url)}`);
+            console.log('BrowserWindow: Falling back to DuckDuckGo search');
+            webview.current?.loadURL(`https://duckduckgo.com/?q=${encodeURIComponent(url)}`);
           }
         });
       } catch (error) {
-        console.error('Error loading URL:', error);
+        console.error('BrowserWindow: Error loading URL:', error);
       }
+    } else {
+      console.log('BrowserWindow: Conditions not met:', {
+        hasWebview: !!webview.current,
+        isReady,
+        url,
+        isNotAboutBlank: url !== 'about:blank'
+      });
     }
-  }, [url, isReady]);
+  }, [url, isReady, ref]);
 
   return (
     <Card className="flex-1 bg-background/95 shadow-lg flex flex-col h-full">
       <CardContent className="p-0 flex-1">
         <webview
-          ref={webviewRef}
+          ref={ref}
           src="https://duckduckgo.com"
           className="w-full h-full"
         />
       </CardContent>
     </Card>
   );
-};
+});
+
+BrowserWindow.displayName = "BrowserWindow";
 
 export default BrowserWindow; 

@@ -55,7 +55,6 @@ import BrowserWindow from './BrowserWindow';
 import UnifiedBar from '@/components/UnifiedBar';
 import MainView from '@/components/MainView';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useWebview } from './hooks/useWebview';
 
 interface SearchResult {
   text: string;
@@ -585,6 +584,10 @@ Keep your response focused and concise.`,
   // Update askAIQuestion to properly handle both agent and non-agent paths
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
+      console.log('App: Handling askAIQuestion:', originalQuery);
+
+      handleUrlChange(originalQuery)
+
       const baseModel = provider(currentSettings.model);
       const contextMiddleware = createContextMiddleware({
         getContext: () => combinedSearchContext,
@@ -1319,16 +1322,46 @@ Keep your response focused and concise.`,
   };
 
   // Add webview state management
-  const {
-    webviewRef,
-    canGoBack,
-    canGoForward,
-    pageTitle,
-    currentUrl: url,
-    handleNavigate,
-    handleUrlChange,
-    handleNavigation
-  } = useWebview();
+  const webviewRef = useRef<Electron.WebviewTag>(null);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  const [pageTitle, setPageTitle] = useState('');
+  const [currentUrl, setCurrentUrl] = useState('https://duckduckgo.com');
+
+  // Handle URL changes
+  const handleUrlChange = (url: string) => {
+    console.log('App: Handling URL change:', url);
+    if (webviewRef.current) {
+      const processedUrl = url.startsWith('http') ? url : `https://${url}`;
+      console.log('App: Loading URL in webview:', processedUrl);
+      webviewRef.current.loadURL(processedUrl).catch((error) => {
+        console.error('App: Error loading URL:', error);
+        if (!url.includes('duckduckgo.com')) {
+          console.log('App: Falling back to DuckDuckGo search');
+          webviewRef.current?.loadURL(`https://duckduckgo.com/?q=${encodeURIComponent(url)}`);
+        }
+      });
+    } else {
+      console.log('App: webviewRef.current is null');
+    }
+  };
+
+  // Handle navigation
+  const handleNavigation = (direction: 'back' | 'forward' | 'reload') => {
+    if (!webviewRef.current) return;
+
+    switch (direction) {
+      case 'back':
+        webviewRef.current.goBack();
+        break;
+      case 'forward':
+        webviewRef.current.goForward();
+        break;
+      case 'reload':
+        webviewRef.current.reload();
+        break;
+    }
+  };
 
   // Add this state near other state declarations
   const [showChat, setShowChat] = useState(false);
@@ -1355,30 +1388,6 @@ Keep your response focused and concise.`,
     setIsBrowserMode(false);
   }, []);
 
-  // Update the handleUnifiedSubmit function
-  const handleUnifiedSubmit = (value: string, isUrl: boolean) => {
-    if (isUrl) {
-      // Handle as URL
-      let processedUrl = value;
-      if (!value.startsWith('http://') && !value.startsWith('https://')) {
-        processedUrl = `https://${value}`;
-      }
-      handleUrlChange(processedUrl);
-      setIsBrowserMode(true);
-      setShowChat(false); // Close chat panel for URLs
-      setShowResults(false); // Hide results for URLs
-      setIsContextVisible(false); // Hide context panel for URLs
-    } else {
-      // Handle as search query
-      if (value.trim()) {
-        handleInputChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>);
-        debouncedSearch(value);
-        setShowResults(true); // Show results for search queries
-        setIsContextVisible(true); // Show context panel for search queries
-      }
-    }
-  };
-
   // Add effect to handle search results visibility
   useEffect(() => {
     if (searchResults.length > 0) {
@@ -1404,8 +1413,11 @@ Keep your response focused and concise.`,
             {/* Main Content Area */}
             <MainView
               isBrowserMode={isBrowserMode}
-              url={url}
-              onNavigate={handleNavigate}
+              url={currentUrl}
+              onNavigate={(url: string, title?: string) => {
+                setCurrentUrl(url);
+                if (title) setPageTitle(title);
+              }}
               showResults={showResults}
               searchResults={searchResults}
               selectedIndex={selectedIndex}
@@ -1441,7 +1453,6 @@ Keep your response focused and concise.`,
               canGoBack={canGoBack}
               canGoForward={canGoForward}
               isBrowserMode={isBrowserMode}
-              onSubmit={handleUnifiedSubmit}
               title={pageTitle}
               showChat={showChat}
               conversations={conversations}
@@ -1460,6 +1471,7 @@ Keep your response focused and concise.`,
               showResults={showResults}
               searchResults={searchResults}
               selectedIndex={selectedIndex}
+              webviewRef={webviewRef}
             />
 
             {/* Sticky Notes Layer */}

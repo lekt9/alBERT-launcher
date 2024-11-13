@@ -50,7 +50,6 @@ const MainView: React.FC<MainViewProps> = ({
                   exit={{ opacity: 0 }}
                   className="h-full flex items-center justify-center text-muted-foreground"
                 >
-                  Click the globe icon to open browser
                 </motion.div>
               )}
             </AnimatePresence>

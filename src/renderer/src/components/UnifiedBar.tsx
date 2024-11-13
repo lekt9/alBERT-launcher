@@ -12,6 +12,7 @@ import { trpcClient } from '../util/trpc-client';
 import Draggable from 'react-draggable';
 import { useDrag } from 'react-dnd';
 import { Badge } from '@/components/ui/badge';
+import { useWebview } from '@/hooks/useWebview';
 
 interface SearchResult {
   text: string;
@@ -37,29 +38,25 @@ interface UnifiedBarProps {
   useAgent: boolean;
   handleAgentToggle: (checked: boolean) => void;
   handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onNavigate: (direction: 'back' | 'forward' | 'reload') => void;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  isBrowserMode: boolean;
   onSubmit: (value: string, isUrl: boolean) => void;
   title?: string;
   showChat: boolean;
-  conversations: AIResponse[];
+  conversations: any[];
   onNewChat: () => void;
-  createStickyNote: (result: SearchResult, position: { x: number; y: number }) => void;
-  isLoading: boolean;
-  askAIQuestion: (query: string) => Promise<void>;
-  dispatch: any;
-  setSearchResults: React.Dispatch<React.SetStateAction<SearchResult[]>>;
-  setShowResults: React.Dispatch<React.SetStateAction<boolean>>;
-  filterOutStickyNotes: (results: SearchResult[]) => SearchResult[];
+  createStickyNote: (result: any, position: { x: number; y: number }) => void;
   isBrowserVisible: boolean;
   setIsBrowserVisible: (visible: boolean) => void;
-  isContextVisible: boolean;
-  setIsContextVisible: (visible: boolean) => void;
+  isBrowserMode: boolean;
+  webviewRef: React.RefObject<Electron.WebviewTag>;
   showResults: boolean;
   searchResults: SearchResult[];
   selectedIndex: number;
+  isContextVisible: boolean;
+  setIsContextVisible: (visible: boolean) => void;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  handleNavigation: (direction: 'back' | 'forward' | 'reload') => void;
+  handleUrlChange: (url: string) => void;
 }
 
 const ResponseItem = ({ response, createStickyNote }: any) => {
@@ -168,29 +165,26 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   useAgent,
   handleAgentToggle,
   handleInputChange,
-  onNavigate,
-  canGoBack,
-  canGoForward,
-  isBrowserMode,
   onSubmit,
   title,
   showChat,
   conversations,
   onNewChat,
   createStickyNote,
-  isLoading,
-  askAIQuestion,
-  dispatch,
-  setSearchResults,
-  setShowResults,
-  filterOutStickyNotes,
   isBrowserVisible,
   setIsBrowserVisible,
-  isContextVisible,
-  setIsContextVisible,
+  isBrowserMode,
+  webviewRef,
+  isLoading,
   showResults,
   searchResults,
   selectedIndex,
+  isContextVisible,
+  setIsContextVisible,
+  canGoBack,
+  canGoForward,
+  handleNavigation,
+  handleUrlChange,
 }, ref) => {
   const [isChatExpanded, setIsChatExpanded] = useState(true);
   const [isResultsExpanded, setIsResultsExpanded] = useState(true);
@@ -206,7 +200,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
           top: scrollContainer.scrollHeight,
           behavior: 'smooth'
         });
-      }, 100); // Small delay to ensure content is rendered
+      }, 100);
 
       return () => clearTimeout(scrollTimeout);
     }
@@ -227,10 +221,19 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
     
     if (!input) return;
 
+    console.log('UnifiedBar: Submitting input:', input);
+
     if (isUrl(input)) {
-      onSubmit(input, true);
+      // Handle URL navigation
+      let processedUrl = input;
+      if (!input.startsWith('http://') && !input.startsWith('https://')) {
+        processedUrl = `https://${input}`;
+      }
+      console.log('UnifiedBar: Submitting URL:', processedUrl);
+      handleUrlChange(processedUrl);
+      setIsBrowserVisible(true);
     } else {
-      setIsChatExpanded(true);
+      // Handle search/chat
       onSubmit(input, false);
     }
   };
@@ -334,7 +337,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => onNavigate('back')}
+                    onClick={() => handleNavigation('back')}
                     disabled={!canGoBack}
                     type="button"
                     className="h-8 w-8"
@@ -344,7 +347,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => onNavigate('forward')}
+                    onClick={() => handleNavigation('forward')}
                     disabled={!canGoForward}
                     type="button"
                     className="h-8 w-8"
@@ -354,7 +357,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => onNavigate('reload')}
+                    onClick={() => handleNavigation('reload')}
                     type="button"
                     className="h-8 w-8"
                   >
