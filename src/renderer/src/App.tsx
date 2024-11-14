@@ -637,6 +637,7 @@ Keep your response focused and concise.`
           dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
           return
         }
+        setQuery("")
 
         // Combine and filter results
         const filteredResults = filterOutStickyNotes([...networkContent, ...quickResults])
