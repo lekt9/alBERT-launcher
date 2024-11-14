@@ -1,20 +1,36 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { electronAPI } from '@electron-toolkit/preload';
 import { exposeElectronTRPC } from 'electron-trpc/main';
 
-const ipcApi = {
-  onOpenInWebview: (callback: (url: string) => void) => {
-    const subscription = (_: any, url: string) => callback(url);
-    ipcRenderer.on('open-in-webview', subscription);
-    return () => {
-      ipcRenderer.removeListener('open-in-webview', subscription);
-    };
+// Define types for IPC communication
+interface NetworkRequestDetails {
+  url: string;
+  method: string;
+  resourceType: string;
+  timestamp?: string;
+}
+
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld('electronIpc', {
+  send: (channel: string, ...args: unknown[]) => {
+    ipcRenderer.send(channel, ...args);
+  },
+  on: (channel: string, callback: (data: NetworkRequestDetails) => void) => {
+    ipcRenderer.on(channel, (_, data) => callback(data));
+  },
+  once: (channel: string, callback: (data: NetworkRequestDetails) => void) => {
+    ipcRenderer.once(channel, (_, data) => callback(data));
+  },
+  removeListener: (channel: string, callback: (data: NetworkRequestDetails) => void) => {
+    ipcRenderer.removeListener(channel, callback);
   }
-};
+});
 
-export type ipcApiType = typeof ipcApi;
+// Expose electronAPI
+contextBridge.exposeInMainWorld('electron', electronAPI);
 
-contextBridge.exposeInMainWorld('electronIpc', ipcApi);
-
+// Initialize electron-trpc
 process.once('loaded', async () => {
   exposeElectronTRPC();
 });

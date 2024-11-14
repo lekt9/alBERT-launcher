@@ -7,7 +7,9 @@ import {
   Tray,
   Menu,
   nativeImage,
-  session
+  session,
+  ipcMain,
+  webContents
 } from 'electron'
 import { join } from 'node:path'
 import SearchDB from './db'
@@ -125,6 +127,21 @@ function createWindow(): void {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
   });
+
+  ipcMain.on('setup-web-request-monitoring', (event, webContentsId) => {
+    const contents = webContents.fromId(webContentsId)
+    if (!contents) return
+
+    contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+      // Send the captured request back to renderer
+      event.sender.send('network-request-captured', {
+        url: details.url,
+        method: details.method,
+        resourceType: details.resourceType
+      })
+      callback({})
+    })
+  })
 }
 
 function openAlBERTFolder(): void {
