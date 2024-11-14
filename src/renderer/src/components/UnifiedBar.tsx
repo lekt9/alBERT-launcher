@@ -1,4 +1,4 @@
-import React, { forwardRef, useState, useRef, useEffect } from 'react';
+import React, { forwardRef, useState, useRef, useEffect, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Search, Bot, FastForward, ArrowLeft, ArrowRight, RotateCcw, Globe, X, Loader2, FileText, GripHorizontal, PanelLeftOpen, Clock } from 'lucide-react';
@@ -12,7 +12,6 @@ import { trpcClient } from '../util/trpc-client';
 import Draggable from 'react-draggable';
 import { useDrag } from 'react-dnd';
 import { Badge } from '@/components/ui/badge';
-import { useWebview } from '@/hooks/useWebview';
 
 interface SearchResult {
   text: string;
@@ -47,7 +46,6 @@ interface UnifiedBarProps {
   isBrowserVisible: boolean;
   setIsBrowserVisible: (visible: boolean) => void;
   isBrowserMode: boolean;
-  webviewRef: React.RefObject<Electron.WebviewTag>;
   showResults: boolean;
   searchResults: SearchResult[];
   selectedIndex: number;
@@ -56,7 +54,7 @@ interface UnifiedBarProps {
   canGoBack: boolean;
   canGoForward: boolean;
   handleNavigation: (direction: 'back' | 'forward' | 'reload') => void;
-  handleUrlChange: (url: string) => void;
+  handleUrlChange?: (url: string) => void;
 }
 
 const ResponseItem = ({ response, createStickyNote }: any) => {
@@ -65,9 +63,7 @@ const ResponseItem = ({ response, createStickyNote }: any) => {
     e.stopPropagation();
 
     if (path.startsWith('http')) {
-      window.dispatchEvent(new CustomEvent('open-in-webview', {
-        detail: { url: path }
-      }));
+      window.electron.invoke('browser-load-url', path);
     } else {
       try {
         await trpcClient.document.open.mutate(path);
@@ -174,8 +170,6 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   isBrowserVisible,
   setIsBrowserVisible,
   isBrowserMode,
-  webviewRef,
-  isLoading,
   showResults,
   searchResults,
   selectedIndex,
@@ -184,13 +178,13 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   canGoBack,
   canGoForward,
   handleNavigation,
-  handleUrlChange,
 }, ref) => {
   const [isChatExpanded, setIsChatExpanded] = useState(true);
   const [isResultsExpanded, setIsResultsExpanded] = useState(true);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (isChatExpanded && scrollContainerRef.current) {
@@ -215,7 +209,12 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
     return input.includes('.') || input.startsWith('http://') || input.startsWith('https://');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleUrlChange = useCallback((url: string): void => {
+    console.log('UnifiedBar: Loading URL:', url);
+    window.electron.invoke('browser-load-url', url);
+  }, []);
+
+  const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
     const input = query.trim();
     
@@ -235,6 +234,28 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
     } else {
       // Handle search/chat
       onSubmit(input, false);
+    }
+  };
+
+  // Add effect to listen for navigation state updates
+  useEffect(() => {
+    const unsubscribe = window.electron.onNavigationStateUpdate((state) => {
+      setCanGoBack(state.canGoBack);
+      setCanGoForward(state.canGoForward);
+      setCurrentUrl(state.currentUrl);
+      setTitle(state.title);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Add handler for globe button click
+  const handleGlobeClick = (): void => {
+    const newVisibility = !isBrowserVisible;
+    setIsBrowserVisible(newVisibility);
+    window.electron.invoke('browser-set-visible', newVisibility);
+    if (newVisibility) {
+      handleUrlChange('https://duckduckgo.com');
     }
   };
 
@@ -383,7 +404,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setIsBrowserVisible(!isBrowserVisible)}
+                    onClick={handleGlobeClick}
                     className="h-8 w-8"
                   >
                     <Globe className={cn(

@@ -51,9 +51,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import BrowserWindow from './BrowserWindow';
 import UnifiedBar from '@/components/UnifiedBar';
-import MainView from '@/components/MainView';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 interface SearchResult {
@@ -1321,8 +1319,7 @@ Keep your response focused and concise.`,
     );
   };
 
-  // Add webview state management
-  const webviewRef = useRef<Electron.WebviewTag>(null);
+  // Add browserView state management
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [pageTitle, setPageTitle] = useState('');
@@ -1331,36 +1328,12 @@ Keep your response focused and concise.`,
   // Handle URL changes
   const handleUrlChange = (url: string) => {
     console.log('App: Handling URL change:', url);
-    if (webviewRef.current) {
-      const processedUrl = url.startsWith('http') ? url : `https://${url}`;
-      console.log('App: Loading URL in webview:', processedUrl);
-      webviewRef.current.loadURL(processedUrl).catch((error) => {
-        console.error('App: Error loading URL:', error);
-        if (!url.includes('duckduckgo.com')) {
-          console.log('App: Falling back to DuckDuckGo search');
-          webviewRef.current?.loadURL(`https://duckduckgo.com/?q=${encodeURIComponent(url)}`);
-        }
-      });
-    } else {
-      console.log('App: webviewRef.current is null');
-    }
+    window.electron.invoke('browser-load-url', url);
   };
 
   // Handle navigation
   const handleNavigation = (direction: 'back' | 'forward' | 'reload') => {
-    if (!webviewRef.current) return;
-
-    switch (direction) {
-      case 'back':
-        webviewRef.current.goBack();
-        break;
-      case 'forward':
-        webviewRef.current.goForward();
-        break;
-      case 'reload':
-        webviewRef.current.reload();
-        break;
-    }
+    window.electron.invoke('browser-navigate', direction);
   };
 
   // Add this state near other state declarations
@@ -1410,33 +1383,6 @@ Keep your response focused and concise.`,
           <div className="h-screen w-screen flex flex-col">
             {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
 
-            {/* Main Content Area */}
-            <MainView
-              isBrowserMode={isBrowserMode}
-              url={currentUrl}
-              onNavigate={(url: string, title?: string) => {
-                setCurrentUrl(url);
-                if (title) setPageTitle(title);
-              }}
-              showResults={showResults}
-              searchResults={searchResults}
-              selectedIndex={selectedIndex}
-              rankedChunks={rankedChunks}
-              createStickyNote={createStickyNote}
-              conversations={conversations}
-              isLoading={isLoading}
-              onNewChat={handleNewChat}
-              askAIQuestion={askAIQuestion}
-              dispatch={dispatch}
-              setSearchResults={setSearchResults}
-              setShowResults={setShowResults}
-              filterOutStickyNotes={filterOutStickyNotes}
-              showChat={showChat}
-              webviewRef={webviewRef}
-              isBrowserVisible={isBrowserVisible}
-              isContextVisible={isContextVisible}
-            />
-
             {/* Unified Bar */}
             <UnifiedBar
               ref={searchBarRef}
@@ -1471,7 +1417,6 @@ Keep your response focused and concise.`,
               showResults={showResults}
               searchResults={searchResults}
               selectedIndex={selectedIndex}
-              webviewRef={webviewRef}
             />
 
             {/* Sticky Notes Layer */}

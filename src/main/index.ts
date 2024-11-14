@@ -1,13 +1,15 @@
 import {
   app,
   shell,
-  BrowserWindow,
   globalShortcut,
   screen,
   Tray,
   Menu,
   nativeImage,
-  session
+  session,
+  ipcMain,
+  webContents,
+  BrowserWindow
 } from 'electron'
 import { join } from 'node:path'
 import SearchDB from './db'
@@ -15,115 +17,39 @@ import path from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import { createIPCHandler } from 'electron-trpc/main'
 import { getRouter } from './api'
-
+import { BrowserWindowController } from './BrowserWindowController';
 
 // Global variables
 process.env.APP_ROOT = path.join(__dirname, '..')
 let tray: Tray | null = null
-let mainWindow: BrowserWindow | null = null
+let browserWindowController: BrowserWindowController | null = null
 app.commandLine.appendSwitch('enable-unsafe-webgpu')
+
 function createWindow(): void {
-  const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  browserWindowController = new BrowserWindowController();
+  const window = browserWindowController.getMainWindow();
+  const mainView = browserWindowController.getMainView();
 
-  mainWindow = new BrowserWindow({
-    x: currentScreen.bounds.x + (currentScreen.bounds.width - 1200) / 2,
-    y: currentScreen.bounds.y + (currentScreen.bounds.height - 700) / 2,
-    width: currentScreen.bounds.width,
-    height: currentScreen.bounds.height,
-    alwaysOnTop: true,
-    focusable: true,
-    frame: false,
-    resizable: true,
-    roundedCorners: true,
-    show: false,
-    autoHideMenuBar: true,
-    transparent: true,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-      nodeIntegration: true,
-      contextIsolation: true,
-      devTools: true,
-      webviewTag: true,
-      webSecurity: true
-    }
-  })
-
-  mainWindow.setMinimumSize(600, 400)
-
-  mainWindow.webContents.openDevTools()
-  // // Set up tRPC handler
+  // Set up tRPC handler
   createIPCHandler({
-    router: getRouter(mainWindow),
-    windows: [mainWindow]
-  })
-
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
-  })
+    router: getRouter(window),
+    windows: [window]
+  });
 
   if (!is.dev) {
-    mainWindow?.on('blur', () => {
-      mainWindow?.webContents.send('window-blur');
+    window.on('blur', () => {
+      mainView.webContents.send('window-blur');
       globalShortcut.unregisterAll();
-    })
+    });
   }
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow?.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    mainWindow?.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
-  mainWindow?.on('close', async () => {
+  window.on('close', async () => {
     try {
-      const searchDB = await SearchDB.getInstance(app.getPath('userData'))
-      await searchDB.shutdown()
+      const searchDB = await SearchDB.getInstance(app.getPath('userData'));
+      await searchDB.shutdown();
     } catch (error) {
-      console.error('Error during shutdown:', error)
+      console.error('Error during shutdown:', error);
     }
-  })
-
-  mainWindow?.on('closed', () => {
-    mainWindow = null
-  })
-
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'geolocation', 'notifications', 'fullscreen'];
-    callback(allowedPermissions.includes(permission));
-  });
-
-  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    return true;
-  });
-
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http: ws:"]
-      }
-    });
-  });
-
-  mainWindow.on('focus', () => {
-    mainWindow?.webContents.send('window-focus');
-    registerShortcuts();
-  });
-
-  function registerShortcuts() {
-    globalShortcut.register('CommandOrControl+F', () => {
-      mainWindow?.webContents.send('find-in-page');
-    });
-  }
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
   });
 }
 
@@ -139,8 +65,9 @@ function createTray(): void {
     path.join(process.env.VITE_PUBLIC || '', 'electron-vite.svg')
   )
   tray = new Tray(icon)
+  const window = browserWindowController?.getMainWindow();
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show', click: () => mainWindow?.show() },
+    { label: 'Show', click: () => window?.show() },
     { label: 'Open alBERT Folder', click: openAlBERTFolder },
     { label: 'Quit', click: () => app.quit() }
   ])
@@ -149,11 +76,12 @@ function createTray(): void {
 }
 
 function toggleWindow(): void {
-  if (mainWindow?.isVisible()) {
-    mainWindow?.hide()
+  const window = browserWindowController?.getMainWindow();
+  if (window?.isVisible()) {
+    window?.hide()
   } else {
-    mainWindow?.show()
-    mainWindow?.focus()
+    window?.show()
+    window?.focus()
   }
 }
 
@@ -165,16 +93,19 @@ app.whenReady().then(async () => {
   // Initialize search database
   const userDataPath = app.getPath('userData')
   const searchDB = await SearchDB.getInstance(userDataPath)
-  // Start indexing
+  
+  createWindow()
+  
+  // Start indexing after window creation
+  const window = browserWindowController?.getMainWindow();
   searchDB
     .startIndexing(path.join(app.getPath('home'), 'alBERT'), (progress, status) => {
-      mainWindow?.webContents.send('indexing-progress', { progress, status })
+      window?.webContents.send('indexing-progress', { progress, status })
     })
     .catch((error) => {
       console.error('Error indexing directory:', error)
     })
 
-  createWindow()
   createTray()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
