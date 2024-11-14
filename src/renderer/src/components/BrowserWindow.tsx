@@ -9,6 +9,7 @@ interface BrowserWindowProps {
 const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
   ({ url, onNavigate }, ref) => {
     const [isReady, setIsReady] = useState(false)
+    const requestMap = React.useRef(new Map<string, NetworkRequest>())
 
     useEffect(() => {
       const webview = ref as React.RefObject<Electron.WebviewTag>
@@ -17,22 +18,29 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
       const handleDomReady = (): void => {
         setIsReady(true)
 
-        // Set up network request monitoring using webContents
         if (webview.current) {
-          // Get the webContents ID from the webview element
           const webContentsId = (webview.current as Electron.WebviewTag).getWebContentsId()
           if (webContentsId) {
-            // Use electronIpc from window global (defined in preload)
             window.electronIpc.send('setup-web-request-monitoring', webContentsId)
             
-            // Listen for captured requests from main process
-            window.electronIpc.on('network-request-captured', (details) => {
-              console.log('Network request captured:', {
-                url: details.url,
-                method: details.method,
-                resourceType: details.resourceType,
+            window.electronIpc.on('network-request-captured', (request: NetworkRequest) => {
+              requestMap.current.set(request.url, request)
+              console.log('Network request:', {
+                ...request,
                 timestamp: new Date().toISOString()
               })
+            })
+
+            window.electronIpc.on('network-response-captured', (data: NetworkResponseEvent) => {
+              const request = requestMap.current.get(data.requestId)
+              if (request) {
+                console.log('Network request-response pair:', {
+                  request,
+                  response: data.response,
+                  timestamp: new Date().toISOString()
+                })
+                requestMap.current.delete(data.requestId)
+              }
             })
           }
         }
@@ -56,12 +64,10 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
       `)
       }
 
-      // Handle navigation events
       const handleNavigation = (e: Electron.DidNavigateEvent): void => {
         onNavigate(e.url, webview.current?.getTitle())
       }
 
-      // Handle title updates
       const handleTitleUpdate = (e: Electron.PageTitleUpdatedEvent): void => {
         onNavigate(webview.current?.getURL() || '', e.title)
       }

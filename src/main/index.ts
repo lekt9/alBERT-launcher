@@ -132,14 +132,37 @@ function createWindow(): void {
     const contents = webContents.fromId(webContentsId)
     if (!contents) return
 
+    // Capture requests
     contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-      // Send the captured request back to renderer
       event.sender.send('network-request-captured', {
         url: details.url,
         method: details.method,
-        resourceType: details.resourceType
+        headers: details.requestHeaders || {},
+        resourceType: details.resourceType,
+        timestamp: new Date().toISOString()
       })
       callback({})
+    })
+
+    // Capture responses
+    contents.session.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
+      event.sender.send('network-response-captured', {
+        requestId: details.url, // Using URL as the request ID for matching
+        response: {
+          status: details.statusCode,
+          headers: details.responseHeaders || {},
+          timestamp: new Date().toISOString()
+        }
+      })
+    })
+
+    // Optionally capture response bodies for certain content types
+    contents.session.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+      const headers = {
+        ...details.requestHeaders,
+        // Add any additional headers if needed
+      }
+      callback({ requestHeaders: headers })
     })
   })
 }
