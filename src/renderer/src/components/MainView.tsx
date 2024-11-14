@@ -10,6 +10,12 @@ interface MainViewProps {
   onNavigate: (url: string) => void
   webviewRef: React.RefObject<Electron.WebviewTag>
   isBrowserVisible: boolean
+  onNetworkContent: (content: {
+    url: string
+    title: string
+    text: string
+    timestamp: string
+  }) => void
 }
 
 const MainView: React.FC<MainViewProps> = ({
@@ -17,6 +23,7 @@ const MainView: React.FC<MainViewProps> = ({
   onNavigate,
   webviewRef,
   isBrowserVisible,
+  onNetworkContent
 }) => {
   return (
     <div className="flex-1 overflow-hidden flex">
@@ -40,6 +47,7 @@ const MainView: React.FC<MainViewProps> = ({
                     url={url} 
                     onNavigate={onNavigate}
                     ref={webviewRef}
+                    onNetworkContent={onNetworkContent}
                   />
                 </motion.div>
               ) : (

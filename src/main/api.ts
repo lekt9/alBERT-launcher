@@ -8,6 +8,7 @@ import path from 'node:path'
 import { readContent } from './utils/reader'
 import { embed, rerank } from './embeddings'
 import { SearchResult, CommonSearchResult } from './types'
+import { extractContentFromUrl, extractContent } from './utils/markdown'
 
 interface CacheEntry {
   timestamp: number;
@@ -183,9 +184,13 @@ export const getRouter = (window: BrowserWindow) => {
           // Inside the quick search procedure, replace the commented section with:
           const [fileResults, perplexityResult] = await Promise.all([
             searchFiles(searchTerm),
-            getPerplexityAnswer(searchTerm).catch(error => {
-              log.error('Perplexity search failed:', error)
-              return null
+            // getPerplexityAnswer(searchTerm).catch(error => {
+            //   log.error('Perplexity search failed:', error)
+            //   return null
+            // })
+            quickSearchWeb(searchTerm).catch(error => {
+              log.error('Web search failed:', error)
+              return []
             })
           ]);
 
@@ -313,6 +318,109 @@ export const getRouter = (window: BrowserWindow) => {
           }
         })
     }),
+
+    indexing: router({
+      indexUrl: t.procedure
+        .input(z.object({
+          url: z.string(),
+          content: z.string(),
+          title: z.string(),
+          depth: z.number().default(0),
+          maxDepth: z.number().default(2)
+        }))
+        .mutation(async ({ input }) => {
+          log.info('tRPC Call: indexing.indexUrl', input.url)
+          try {
+            const userDataPath = app.getPath('userData')
+            const searchDB = await SearchDB.getInstance(userDataPath)
+            
+            // Index the current URL
+            await searchDB.indexUrl(input.url, input.content, input.title)
+
+            // If we haven't reached max depth, extract and index linked URLs
+            if (input.depth < input.maxDepth) {
+              // Extract URLs from content
+              const urlRegex = /https?:\/\/[^\s<>"']+/g
+              const urls = [...new Set(input.content.match(urlRegex) || [])]
+              
+              // Process each URL
+              await Promise.all(urls.map(async (url) => {
+                try {
+                  const extracted = await extractContentFromUrl(url)
+                  if (extracted?.content) {
+                    await searchDB.indexUrl(
+                      url,
+                      extracted.content,
+                      extracted.title || url
+                    )
+                  }
+                } catch (error) {
+                  log.error(`Error indexing linked URL ${url}:`, error)
+                }
+              }))
+            }
+
+            return true
+          } catch (error) {
+            log.error('Error indexing URL:', error)
+            throw error
+          }
+        })
+    }),
+
+    markdown: router({
+      extractContent: t.procedure
+        .input(z.object({
+          html: z.string(),
+          url: z.string().optional()
+        }))
+        .query(async ({ input }) => {
+          try {
+            log.info('tRPC Call: markdown.extractContent', { url: input.url })
+            
+            if (input.url) {
+              // Extract from URL
+              const content = await extractContentFromUrl(input.url)
+              return {
+                success: true,
+                content
+              }
+            } else {
+              // Extract from HTML string
+              const content = extractContent(input.html)
+              return {
+                success: true,
+                content
+              }
+            }
+          } catch (error) {
+            log.error('Error extracting content:', error)
+            return {
+              success: false,
+              error: String(error)
+            }
+          }
+        }),
+
+      extractFromUrl: t.procedure
+        .input(z.string())
+        .query(async ({ input: url }) => {
+          try {
+            log.info('tRPC Call: markdown.extractFromUrl', url)
+            const content = await extractContentFromUrl(url)
+            return {
+              success: true,
+              content
+            }
+          } catch (error) {
+            log.error('Error extracting content from URL:', error)
+            return {
+              success: false,
+              error: String(error)
+            }
+          }
+        })
+    })
   })
 }
 

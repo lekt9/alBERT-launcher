@@ -18,7 +18,24 @@ async function extractContentFromUrl(url: string): Promise<ExtractedContent> {
     // Fetch the webpage content
     const response = await fetch(url)
     const html = await response.text()
+    return extractContent(html)
+  } catch (error) {
+    console.error('Error fetching URL:', error)
+    return {
+      title: null,
+      content: null,
+      markdown: '',
+      textContent: '',
+      length: 0,
+      excerpt: null,
+      byline: null,
+      siteName: null
+    }
+  }
+}
 
+function extractContent(html: string): ExtractedContent {
+  try {
     // Parse HTML using linkedom
     const dom = parseHTML(html)
     const document = dom.window.document
@@ -75,8 +92,4 @@ async function extractContentFromUrl(url: string): Promise<ExtractedContent> {
   }
 }
 
-// Example usage:
-// const content = await extractContentFromUrl('https://example.com');
-// console.log(content.markdown);
-
-export { extractContentFromUrl, ExtractedContent }
+export { extractContentFromUrl, extractContent, ExtractedContent }

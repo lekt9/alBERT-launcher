@@ -21,3 +21,19 @@ export async function getContextSimilarityScores(
     scores: scores.map(queryScores => queryScores[docIndex])
   }))
 }
+
+export async function indexUrl(
+  url: string,
+  content: string,
+  title: string,
+  depth: number = 0,
+  maxDepth: number = 2
+) {
+  return await trpcClient.indexing.indexUrl.mutate({
+    url,
+    content,
+    title,
+    depth,
+    maxDepth
+  })
+}
