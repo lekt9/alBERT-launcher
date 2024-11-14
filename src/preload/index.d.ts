@@ -6,12 +6,13 @@ interface NetworkRequest {
   headers: Record<string, string>
   timestamp: string
   resourceType: string
+  body?: any
 }
 
 interface NetworkResponse {
   status: number
   headers: Record<string, string>
-  body?: string
+  body?: any
   timestamp: string
 }
 

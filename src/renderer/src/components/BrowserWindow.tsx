@@ -14,6 +14,16 @@ interface BrowserWindowProps {
   }) => void
 }
 
+interface NetworkPair {
+  url: string;
+  method: string;
+  request_headers: Record<string, string>;
+  request_body: any;
+  response_headers: Record<string, string>;
+  response_body: any;
+  status_code: number;
+}
+
 const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
   ({ url, onNavigate, onNetworkContent }, ref) => {
     const [isReady, setIsReady] = useState(false)
@@ -54,6 +64,19 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
       }
     }
 
+    // Add function to send network pair to local API
+    const sendNetworkPair = async (pair: NetworkPair) => {
+      try {
+        const result = await trpcClient.network.addPair.mutate(pair);
+        if (!result.success) {
+          throw new Error(result.error);
+        }
+        console.log('Successfully sent network pair to API');
+      } catch (error) {
+        console.error('Error sending network pair to API:', error);
+      }
+    };
+
     useEffect(() => {
       const webview = ref as React.RefObject<Electron.WebviewTag>
       if (!webview.current) return
@@ -67,20 +90,50 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
             // Set up network monitoring
             window.electronIpc.send('setup-web-request-monitoring', webContentsId)
 
-            // Clean up existing listeners if any
+            // Track request bodies
+            const requestBodies = new Map<string, any>();
+
+            // Monitor network requests
             const requestHandler = (request: NetworkRequest) => {
               console.log('Network request captured:', request)
               requestMap.current.set(request.url, request)
+              // Store request body if it exists
+              if (request.body) {
+                requestBodies.set(request.url, request.body);
+              }
             }
 
+            // Monitor network responses
             const responseHandler = async (data: NetworkResponseEvent) => {
               console.log('Network response captured:', data)
               const request = requestMap.current.get(data.requestId)
               if (request) {
-                const contentType = data.response.headers['content-type']
-                if (contentType?.includes('text/html')) {
+                // Process headers to ensure they're all strings
+                const processHeaders = (headers: Record<string, string | string[]>): Record<string, string> => {
+                  const processed: Record<string, string> = {};
+                  Object.entries(headers).forEach(([key, value]) => {
+                    processed[key] = Array.isArray(value) ? value.join(', ') : String(value);
+                  });
+                  return processed;
+                };
+
+                // Create network pair object with processed headers
+                const networkPair: NetworkPair = {
+                  url: request.url,
+                  method: request.method,
+                  request_headers: processHeaders(request.headers || {}),
+                  request_body: requestBodies.get(request.url) || null,
+                  response_headers: processHeaders(data.response.headers || {}),
+                  response_body: data.response.body || null,
+                  status_code: data.response.status
+                };
+
+                // Send to local API
+                await sendNetworkPair(networkPair);
+
+                // Process HTML content if needed
+                if (data.response.headers['content-type']?.includes('text/html')) {
                   try {
-                    // Get content from the URL
                     const content = await webview.current?.executeJavaScript(`
                       new Promise((resolve) => {
                         const content = {
@@ -99,7 +152,10 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
                     console.error('Error processing network content:', error)
                   }
                 }
+                
+                // Cleanup
                 requestMap.current.delete(data.requestId)
+                requestBodies.delete(request.url)
               }
             }
 

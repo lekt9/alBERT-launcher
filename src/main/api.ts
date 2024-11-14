@@ -420,6 +420,39 @@ export const getRouter = (window: BrowserWindow) => {
             }
           }
         })
+    }),
+
+    network: router({
+      addPair: t.procedure
+        .input(z.object({
+          url: z.string(),
+          method: z.string(),
+          request_headers: z.record(z.string()),
+          request_body: z.any(),
+          response_headers: z.record(z.string()),
+          response_body: z.any(),
+          status_code: z.number()
+        }))
+        .mutation(async ({ input }) => {
+          try {
+            const response = await fetch('http://localhost:8000/add-pair', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(input)
+            });
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return { success: true };
+          } catch (error) {
+            console.error('Error sending network pair to API:', error);
+            return { success: false, error: String(error) };
+          }
+        })
     })
   })
 }
