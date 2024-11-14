@@ -182,7 +182,7 @@ export const getRouter = (window: BrowserWindow) => {
           }
 
           // Inside the quick search procedure, replace the commented section with:
-          const [fileResults, perplexityResult] = await Promise.all([
+          const [fileResults, webResults] = await Promise.all([
             searchFiles(searchTerm),
             // getPerplexityAnswer(searchTerm).catch(error => {
             //   log.error('Perplexity search failed:', error)
@@ -195,7 +195,7 @@ export const getRouter = (window: BrowserWindow) => {
           ]);
 
           const combinedResults = [
-            ...(perplexityResult ? [perplexityResult] : []),
+            ...webResults,
             ...fileResults
           ].filter((result) => result.text && result.text.trim().length > 0);
 

@@ -13,6 +13,7 @@ import Draggable from 'react-draggable';
 import { useDrag } from 'react-dnd';
 import { Badge } from '@/components/ui/badge';
 import { useWebview } from '@/hooks/useWebview';
+import { urlHandler } from '@/lib/url-handler';
 
 interface SearchResult {
   text: string;
@@ -38,6 +39,7 @@ interface UnifiedBarProps {
   useAgent: boolean;
   handleAgentToggle: (checked: boolean) => void;
   handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSubmit: (value: string, isUrl: boolean) => void;
   title?: string;
   showChat: boolean;
   conversations: any[];
@@ -64,7 +66,7 @@ const ResponseItem = ({ response, createStickyNote }: any) => {
     e.stopPropagation();
 
     if (path.startsWith('http')) {
-      window.dispatchEvent(new CustomEvent('open-in-webview', {
+      window.dispatchEvent(new CustomEvent('handle-url', {
         detail: { url: path }
       }));
     } else {
@@ -117,35 +119,20 @@ const SearchResultCard = ({ result, index, isSelected, onDragEnd }: {
   isSelected: boolean
   onDragEnd: (result: SearchResult, position: { x: number; y: number }) => void
 }) => {
-  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const handlePathClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    const url = e.currentTarget.href;
-    window.dispatchEvent(new CustomEvent('open-in-webview', {
-      detail: { url }
-    }));
-  };
 
-  const processTextWithLinks = (text: string) => {
-    const urlPattern = /(https?:\/\/[^\s]+)/g;
-    
-    const parts = text.split(urlPattern);
-    return parts.map((part, i) => {
-      if (part.match(urlPattern)) {
-        return (
-          <a
-            key={i}
-            href={part}
-            onClick={handleLinkClick}
-            className="text-primary hover:underline"
-          >
-            {part}
-          </a>
-        );
-      }
-      return part;
-    });
+    const path = result.metadata.path;
+    if (path.startsWith('http')) {
+      window.dispatchEvent(new CustomEvent('handle-url', {
+        detail: { url: path }
+      }));
+    } else {
+      trpcClient.document.open.mutate(path).catch(error => {
+        console.error('Failed to open document:', error);
+      });
+    }
   };
 
   const [{ isDragging }, drag] = useDrag({
@@ -174,11 +161,14 @@ const SearchResultCard = ({ result, index, isSelected, onDragEnd }: {
       <div className="flex items-start gap-2">
         <Search className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
         <div className="space-y-1 min-w-0">
-          <div className="text-sm font-medium truncate">
+          <div 
+            className="text-sm font-medium truncate hover:underline cursor-pointer"
+            onClick={handlePathClick}
+          >
             {result.metadata.title || result.metadata.path.split('/').pop()}
           </div>
           <p className="text-xs text-muted-foreground line-clamp-2">
-            {processTextWithLinks(result.text)}
+            {result.text}
           </p>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
@@ -195,6 +185,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   useAgent,
   handleAgentToggle,
   handleInputChange,
+  onSubmit,
   title,
   showChat,
   conversations,
@@ -240,75 +231,24 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
     return match ? match[0].trim() : text.slice(0, 100) + '...';
   };
 
-  const processUrl = (input: string): string => {
-    let url = input.trim()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const input = query.trim();
     
-    // Handle common search engine shortcuts
-    if (/^(g|google)\s+/.test(url)) {
-      return `https://www.google.com/search?q=${encodeURIComponent(url.replace(/^(g|google)\s+/, ''))}`
-    }
-    
-    // If it's already a valid URL, ensure it has a protocol
-    if (url.includes('.')) {
-      // Remove any leading/trailing whitespace and common prefixes
-      url = url.replace(/^(?:https?:\/\/)?(?:www\.)?/, '')
-      
-      // Handle IP addresses
-      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(url)) {
-        return `http://${url}`
-      }
-      
-      // Handle localhost
-      if (url.startsWith('localhost')) {
-        return `http://${url}`
-      }
-      
-      // Handle valid domains
-      if (/^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}/.test(url)) {
-        return `https://${url}`
-      }
-    }
-    
-    // If it doesn't look like a URL, treat it as a search query
-    return `https://duckduckgo.com/?q=${encodeURIComponent(url)}`
-  }
+    if (!input) return;
 
-  const isUrl = (input: string): boolean => {
-    const processed = input.trim().toLowerCase()
-    return (
-      processed.startsWith('http://') ||
-      processed.startsWith('https://') ||
-      processed.startsWith('localhost') ||
-      /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(processed) || // IP address
-      /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}/.test(processed) // Domain name
-    )
-  }
+    console.log('UnifiedBar: Submitting input:', input);
 
-  // Add effect to detect URLs in input and show browser
-  useEffect(() => {
-    if (query && isUrl(query)) {
-      setIsBrowserVisible(true)
-    }
-  }, [query, setIsBrowserVisible])
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const input = query.trim()
-    
-    if (!input) return
-
-    console.log('UnifiedBar: Submitting input:', input)
-
-    if (isUrl(input)) {
+    if (urlHandler.isUrl(input)) {
       // Handle URL navigation
-      const processedUrl = processUrl(input)
-      console.log('UnifiedBar: Submitting URL:', processedUrl)
-      handleUrlChange(processedUrl)
-      setIsBrowserVisible(true) // Ensure browser is visible when submitting URL
+      const processedUrl = urlHandler.processUrl(input);
+      console.log('UnifiedBar: Submitting URL:', processedUrl);
+      await urlHandler.handleUrl(processedUrl);
     } else {
       // Handle search/chat
+      onSubmit(input, false);
     }
-  }
+  };
 
   return (
     <Draggable
@@ -395,7 +335,7 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
         </AnimatePresence>
 
         {/* Prompt Bar - Fixed position */}
-        <form className="relative group">
+        <form onSubmit={handleSubmit} className="relative group">
           <Card className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 overflow-hidden border rounded-xl">
             {/* Drag Handle */}
             <div className="absolute inset-x-0 top-0 h-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-move drag-handle flex items-center justify-center">

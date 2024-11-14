@@ -51,6 +51,7 @@ import BrowserWindow from './BrowserWindow'
 import UnifiedBar from '@/components/UnifiedBar'
 import MainView from '@/components/MainView'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { urlHandler } from '@/lib/url-handler'
 
 interface SearchResult {
   text: string
@@ -579,23 +580,11 @@ Keep your response focused and concise.`
     }
   }
 
-  // Handle URL changes
-  const handleUrlChange = (url: string) => {
-    console.log('App: Handling URL change:', url)
-    if (webviewRef.current) {
-      const processedUrl = url.startsWith('http') ? url : `https://${url}`
-      console.log('App: Loading URL in webview:', processedUrl)
-      webviewRef.current.loadURL(processedUrl).catch((error) => {
-        console.error('App: Error loading URL:', error)
-        if (!url.includes('duckduckgo.com')) {
-          console.log('App: Falling back to DuckDuckGo search')
-          webviewRef.current?.loadURL(`https://duckduckgo.com/?q=${encodeURIComponent(url)}`)
-        }
-      })
-    } else {
-      console.log('App: webviewRef.current is null')
-    }
-  }
+  // Update handleUrlChange to use URL handler
+  const handleUrlChange = async (url: string) => {
+    await urlHandler.handleUrl(url);
+  };
+
   // Update the filterOutStickyNotes function
   const filterOutStickyNotes = (results: SearchResult[]): SearchResult[] => {
     const stickyNotePaths = new Set(stickyNotes.map((note) => note.metadata.path))
@@ -765,16 +754,15 @@ Keep your response focused and concise.`
         clearTimeout(searchTimeoutRef.current)
       }
 
-    //   // Only search if there's content
-    //   if (newQuery.trim()) {
-    //     searchTimeoutRef.current = setTimeout(() => {
-    //       debouncedSearch(newQuery)
-    //     }, 800)
-    //   } else {
-    //     setShowResults(false)
-    //     setSearchResults([])
-    //   }
-    // },
+      // // Only search if there's content
+      // if (newQuery.trim()) {
+      //   searchTimeoutRef.current = setTimeout(() => {
+      //     debouncedSearch(newQuery)
+      //   }, 800)
+      // } else {
+      //   setShowResults(false)
+      //   setSearchResults([])
+      // }
     },
     [debouncedSearch]
   )
@@ -1316,7 +1304,7 @@ Keep your response focused and concise.`
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
   const [pageTitle, setPageTitle] = useState('')
-  const [currentUrl, setCurrentUrl] = useState('https://duckduckgo.com')
+  const [currentUrl, setCurrentUrl] = useState<string>('')
 
   // Handle navigation
   const handleNavigation = (direction: 'back' | 'forward' | 'reload') => {
@@ -1412,20 +1400,22 @@ Keep your response focused and concise.`
     [isBrowserMode]
   )
 
-  // Add event listener for opening URLs in webview
+  // Initialize URL handler in useEffect
   useEffect(() => {
-    const handleOpenInWebview = (event: CustomEvent<{ url: string }>) => {
-      const { url } = event.detail;
-      handleUrlChange(url);
-      setIsBrowserVisible(true);
+    urlHandler.initialize(webviewRef, setIsBrowserVisible, setCurrentUrl);
+  }, [webviewRef]);
+
+  // Update the URL event handler
+  useEffect(() => {
+    const handleUrlEvent = async (e: CustomEvent<{ url: string }>) => {
+      if (e.detail.url) {
+        await urlHandler.handleUrl(e.detail.url);
+      }
     };
 
-    window.addEventListener('open-in-webview' as any, handleOpenInWebview);
-    
-    return () => {
-      window.removeEventListener('open-in-webview' as any, handleOpenInWebview);
-    };
-  }, [handleUrlChange, setIsBrowserVisible]);
+    window.addEventListener('handle-url' as any, handleUrlEvent);
+    return () => window.removeEventListener('handle-url' as any, handleUrlEvent);
+  }, []);
 
   return (
     <TooltipProvider>

@@ -186,10 +186,11 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
 
     useEffect(() => {
       const webview = ref as React.RefObject<Electron.WebviewTag>
-      if (webview.current && isReady && url && url !== 'about:blank') {
+      if (webview.current && isReady && url) {
         try {
           const processedUrl = url.startsWith('http') ? url : `https://${url}`
           if (shouldHandleNavigation(processedUrl)) {
+            console.log('BrowserWindow: Loading URL:', processedUrl)
             webview.current.loadURL(processedUrl).catch((error) => {
               console.error('BrowserWindow: Error loading URL:', error)
               if (!url.includes('duckduckgo.com')) {
@@ -216,7 +217,11 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
     return (
       <Card className="flex-1 bg-background/95 shadow-lg flex flex-col h-full">
         <CardContent className="p-0 flex-1">
-          <webview ref={ref} src="https://duckduckgo.com" className="w-full h-full" />
+          <webview 
+            ref={ref} 
+            src={url || "about:blank"} 
+            className="w-full h-full" 
+          />
         </CardContent>
       </Card>
     )
