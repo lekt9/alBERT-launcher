@@ -132,38 +132,51 @@ function createWindow(): void {
     const contents = webContents.fromId(webContentsId)
     if (!contents) return
 
-    // Capture requests
-    contents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+    // Store headers for each request
+    const requestHeadersMap = new Map<string, Record<string, string | string[]>>();
+
+    // Capture requests with headers
+    contents.session.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+      // Store headers for this request
+      requestHeadersMap.set(details.url, details.requestHeaders || {});
+
       event.sender.send('network-request-captured', {
         url: details.url,
         method: details.method,
         headers: details.requestHeaders || {},
         resourceType: details.resourceType,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        body: details.uploadData?.[0]?.bytes?.toString() || null
       })
-      callback({})
+      callback({ requestHeaders: details.requestHeaders })
     })
 
-    // Capture responses
+    // Capture responses with headers and body
     contents.session.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
+      // Get stored request headers
+      const requestHeaders = requestHeadersMap.get(details.url) || {};
+      
       event.sender.send('network-response-captured', {
-        requestId: details.url, // Using URL as the request ID for matching
+        requestId: details.url,
         response: {
           status: details.statusCode,
           headers: details.responseHeaders || {},
+          body: details.responseBody,
           timestamp: new Date().toISOString()
+        },
+        request: {
+          headers: requestHeaders
         }
       })
+
+      // Clean up stored headers
+      requestHeadersMap.delete(details.url);
     })
 
-    // Optionally capture response bodies for certain content types
-    contents.session.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-      const headers = {
-        ...details.requestHeaders,
-        // Add any additional headers if needed
-      }
-      callback({ requestHeaders: headers })
-    })
+    // Clean up on navigation
+    contents.on('did-navigate', () => {
+      requestHeadersMap.clear();
+    });
   })
 }
 

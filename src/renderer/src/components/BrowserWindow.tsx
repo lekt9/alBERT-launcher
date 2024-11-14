@@ -90,13 +90,19 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
             // Set up network monitoring
             window.electronIpc.send('setup-web-request-monitoring', webContentsId)
 
-            // Track request bodies
+            // Track request bodies and headers
             const requestBodies = new Map<string, any>();
+            const requestHeaders = new Map<string, Record<string, string>>();
 
             // Monitor network requests
             const requestHandler = (request: NetworkRequest) => {
               console.log('Network request captured:', request)
-              requestMap.current.set(request.url, request)
+              requestMap.current.set(request.url, {
+                ...request,
+                headers: { ...request.headers }
+              })
+              // Store request headers directly from the request object
+              requestHeaders.set(request.url, { ...request.headers });
               // Store request body if it exists
               if (request.body) {
                 requestBodies.set(request.url, request.body);
@@ -111,22 +117,28 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
                 // Process headers to ensure they're all strings
                 const processHeaders = (headers: Record<string, string | string[]>): Record<string, string> => {
                   const processed: Record<string, string> = {};
-                  Object.entries(headers).forEach(([key, value]) => {
+                  Object.entries(headers || {}).forEach(([key, value]) => {
                     processed[key] = Array.isArray(value) ? value.join(', ') : String(value);
                   });
                   return processed;
                 };
 
+                // Use headers from the response event
+                const requestHeaders = data.request.headers;
+                console.log('Request headers:', requestHeaders);
+
                 // Create network pair object with processed headers
                 const networkPair: NetworkPair = {
                   url: request.url,
                   method: request.method,
-                  request_headers: processHeaders(request.headers || {}),
+                  request_headers: requestHeaders,
                   request_body: requestBodies.get(request.url) || null,
                   response_headers: processHeaders(data.response.headers || {}),
                   response_body: data.response.body || null,
                   status_code: data.response.status
                 };
+
+                console.log('Sending network pair:', networkPair);
 
                 // Send to local API
                 await sendNetworkPair(networkPair);
@@ -156,6 +168,7 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
                 // Cleanup
                 requestMap.current.delete(data.requestId)
                 requestBodies.delete(request.url)
+                requestHeaders.delete(request.url)
               }
             }
 

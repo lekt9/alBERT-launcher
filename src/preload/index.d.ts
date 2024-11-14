@@ -19,6 +19,9 @@ interface NetworkResponse {
 interface NetworkResponseEvent {
   requestId: string
   response: NetworkResponse
+  request: {
+    headers: Record<string, string | string[]>
+  }
 }
 
 declare global {
