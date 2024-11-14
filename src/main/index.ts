@@ -53,7 +53,7 @@ function createWindow(): void {
 
   mainWindow.setMinimumSize(600, 400)
 
-  // mainWindow.webContents.openDevTools()
+  mainWindow.webContents.openDevTools()
   // // Set up tRPC handler
   createIPCHandler({
     router: getRouter(mainWindow),

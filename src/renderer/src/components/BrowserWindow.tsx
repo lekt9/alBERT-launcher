@@ -54,29 +54,6 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
       }
     }
 
-    const indexPageContent = async (url: string) => {
-      const webview = (ref as React.RefObject<Electron.WebviewTag>).current
-      if (!webview) return
-
-      try {
-        // Get page content
-        const content = await webview.executeJavaScript(`
-          new Promise((resolve) => {
-            const content = {
-              title: document.title,
-              content: document.documentElement.outerHTML,
-              text: document.body.innerText
-            };
-            resolve(content);
-          })
-        `)
-
-        await processContent(content.content, url, content.title)
-      } catch (error) {
-        console.error('Error indexing page content:', error)
-      }
-    }
-
     useEffect(() => {
       const webview = ref as React.RefObject<Electron.WebviewTag>
       if (!webview.current) return
@@ -85,48 +62,58 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
         setIsReady(true)
 
         if (webview.current) {
-          const webContentsId = (webview.current as Electron.WebviewTag).getWebContentsId()
+          const webContentsId = webview.current.getWebContentsId()
           if (webContentsId) {
+            // Set up network monitoring
             window.electronIpc.send('setup-web-request-monitoring', webContentsId)
 
-            // Monitor network requests
-            window.electronIpc.on('network-request-captured', (request: NetworkRequest) => {
+            // Clean up existing listeners if any
+            const requestHandler = (request: NetworkRequest) => {
+              console.log('Network request captured:', request)
               requestMap.current.set(request.url, request)
-            })
+            }
 
-            // Monitor network responses
-            window.electronIpc.on(
-              'network-response-captured',
-              async (data: NetworkResponseEvent) => {
-                const request = requestMap.current.get(data.requestId)
-                if (request) {
-                  // Only process HTML content
-                  if (data.response.headers['content-type']?.includes('text/html')) {
-                    try {
-                      // Get content from the URL
-                      const content = await webview.current?.executeJavaScript(`
-                        new Promise((resolve) => {
-                          const content = {
-                            title: document.title,
-                            content: document.documentElement.outerHTML,
-                            text: document.body.innerText
-                          };
-                          resolve(content);
-                        })
-                      `)
+            const responseHandler = async (data: NetworkResponseEvent) => {
+              console.log('Network response captured:', data)
+              const request = requestMap.current.get(data.requestId)
+              if (request) {
+                const contentType = data.response.headers['content-type']
+                if (contentType?.includes('text/html')) {
+                  try {
+                    // Get content from the URL
+                    const content = await webview.current?.executeJavaScript(`
+                      new Promise((resolve) => {
+                        const content = {
+                          title: document.title,
+                          content: document.documentElement.outerHTML,
+                          text: document.body.innerText
+                        };
+                        resolve(content);
+                      })
+                    `)
 
+                    if (content) {
                       await processContent(content.content, request.url, content.title)
-                    } catch (error) {
-                      console.error('Error processing network content:', error)
                     }
+                  } catch (error) {
+                    console.error('Error processing network content:', error)
                   }
-                  requestMap.current.delete(data.requestId)
                 }
+                requestMap.current.delete(data.requestId)
               }
-            )
+            }
+
+            // Remove existing listeners first
+            window.electronIpc.removeListener('network-request-captured', requestHandler)
+            window.electronIpc.removeListener('network-response-captured', responseHandler)
+
+            // Add new listeners
+            window.electronIpc.on('network-request-captured', requestHandler)
+            window.electronIpc.on('network-response-captured', responseHandler)
           }
         }
 
+        // Add custom CSS
         webview.current?.insertCSS(`
           * {
             outline: none !important;
@@ -146,21 +133,24 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
         `)
       }
 
-      const shouldHandleNavigation = (newUrl: string): boolean => {
-        const now = Date.now()
-        if (newUrl === lastNavigationUrl.current && now - lastNavigationTime.current < 1000) {
-          return false
-        }
-        lastNavigationUrl.current = newUrl
-        lastNavigationTime.current = now
-        return true
-      }
-
       const handleNavigation = (e: Electron.DidNavigateEvent): void => {
         if (shouldHandleNavigation(e.url)) {
           onNavigate(e.url, webview.current?.getTitle())
-          // Index content after navigation
-          indexPageContent(e.url)
+          // Process page content after navigation
+          webview.current?.executeJavaScript(`
+            new Promise((resolve) => {
+              const content = {
+                title: document.title,
+                content: document.documentElement.outerHTML,
+                text: document.body.innerText
+              };
+              resolve(content);
+            })
+          `).then(content => {
+            if (content) {
+              processContent(content.content, e.url, content.title)
+            }
+          })
         }
       }
 
@@ -180,29 +170,22 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
           webview.current.removeEventListener('dom-ready', handleDomReady)
           webview.current.removeEventListener('did-navigate', handleNavigation)
           webview.current.removeEventListener('page-title-updated', handleTitleUpdate)
+          
+          // Remove network listeners
+          const requestHandler = (request: NetworkRequest) => {
+            requestMap.current.set(request.url, request)
+          }
+          const responseHandler = async (data: NetworkResponseEvent) => {
+            const request = requestMap.current.get(data.requestId)
+            if (request) {
+              requestMap.current.delete(data.requestId)
+            }
+          }
+          window.electronIpc.removeListener('network-request-captured', requestHandler)
+          window.electronIpc.removeListener('network-response-captured', responseHandler)
         }
       }
     }, [ref, onNavigate, onNetworkContent])
-
-    useEffect(() => {
-      const webview = ref as React.RefObject<Electron.WebviewTag>
-      if (webview.current && isReady && url) {
-        try {
-          const processedUrl = url.startsWith('http') ? url : `https://${url}`
-          if (shouldHandleNavigation(processedUrl)) {
-            console.log('BrowserWindow: Loading URL:', processedUrl)
-            webview.current.loadURL(processedUrl).catch((error) => {
-              console.error('BrowserWindow: Error loading URL:', error)
-              if (!url.includes('duckduckgo.com')) {
-                webview.current?.loadURL(`https://duckduckgo.com/?q=${encodeURIComponent(url)}`)
-              }
-            })
-          }
-        } catch (error) {
-          console.error('BrowserWindow: Error loading URL:', error)
-        }
-      }
-    }, [url, isReady, ref])
 
     const shouldHandleNavigation = (newUrl: string): boolean => {
       const now = Date.now()
@@ -219,7 +202,7 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
         <CardContent className="p-0 flex-1">
           <webview 
             ref={ref} 
-            src={url || "https://www.duckduckgo.com"} 
+            src={url || "about:blank"} 
             className="w-full h-full" 
           />
         </CardContent>
