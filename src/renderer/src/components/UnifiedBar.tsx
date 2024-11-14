@@ -54,10 +54,6 @@ interface UnifiedBarProps {
   selectedIndex: number;
   isContextVisible: boolean;
   setIsContextVisible: (visible: boolean) => void;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  handleNavigation: (direction: 'back' | 'forward' | 'reload') => void;
-  handleUrlChange: (url: string) => void;
 }
 
 const ResponseItem = ({ response, createStickyNote }: any) => {
@@ -201,16 +197,14 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
   selectedIndex,
   isContextVisible,
   setIsContextVisible,
-  canGoBack,
-  canGoForward,
-  handleNavigation,
-  handleUrlChange,
 }, ref) => {
   const [isChatExpanded, setIsChatExpanded] = useState(true);
   const [isResultsExpanded, setIsResultsExpanded] = useState(true);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
 
   useEffect(() => {
     if (isChatExpanded && scrollContainerRef.current) {
@@ -249,6 +243,61 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
       onSubmit(input, false);
     }
   };
+
+  const handleBack = () => {
+    if (webviewRef.current) {
+      webviewRef.current.goBack();
+      setTimeout(() => {
+        setCanGoBack(webviewRef.current?.canGoBack() || false);
+        setCanGoForward(webviewRef.current?.canGoForward() || false);
+      }, 100);
+    }
+  };
+
+  const handleForward = () => {
+    if (webviewRef.current) {
+      webviewRef.current.goForward();
+      setTimeout(() => {
+        setCanGoBack(webviewRef.current?.canGoBack() || false);
+        setCanGoForward(webviewRef.current?.canGoForward() || false);
+      }, 100);
+    }
+  };
+
+  const handleReload = () => {
+    if (webviewRef.current) {
+      webviewRef.current.reload();
+    }
+  };
+
+  useEffect(() => {
+    const updateNavigationState = () => {
+      if (webviewRef.current) {
+        const back = webviewRef.current.canGoBack();
+        const forward = webviewRef.current.canGoForward();
+        setCanGoBack(back);
+        setCanGoForward(forward);
+      }
+    };
+
+    if (webviewRef.current) {
+      webviewRef.current.addEventListener('did-navigate', updateNavigationState);
+      webviewRef.current.addEventListener('did-navigate-in-page', updateNavigationState);
+      webviewRef.current.addEventListener('did-finish-load', updateNavigationState);
+      webviewRef.current.addEventListener('did-frame-finish-load', updateNavigationState);
+      
+      updateNavigationState();
+    }
+
+    return () => {
+      if (webviewRef.current) {
+        webviewRef.current.removeEventListener('did-navigate', updateNavigationState);
+        webviewRef.current.removeEventListener('did-navigate-in-page', updateNavigationState);
+        webviewRef.current.removeEventListener('did-finish-load', updateNavigationState);
+        webviewRef.current.removeEventListener('did-frame-finish-load', updateNavigationState);
+      }
+    };
+  }, [webviewRef.current]);
 
   return (
     <Draggable
@@ -349,29 +398,26 @@ const UnifiedBar = forwardRef<HTMLInputElement, UnifiedBarProps>(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleNavigation('back')}
-                    disabled={!canGoBack}
-                    type="button"
                     className="h-8 w-8"
+                    disabled={!canGoBack}
+                    onClick={handleBack}
                   >
                     <ArrowLeft className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleNavigation('forward')}
-                    disabled={!canGoForward}
-                    type="button"
                     className="h-8 w-8"
+                    disabled={!canGoForward}
+                    onClick={handleForward}
                   >
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleNavigation('reload')}
-                    type="button"
                     className="h-8 w-8"
+                    onClick={handleReload}
                   >
                     <RotateCcw className="h-4 w-4" />
                   </Button>

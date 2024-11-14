@@ -219,7 +219,7 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
         <CardContent className="p-0 flex-1">
           <webview 
             ref={ref} 
-            src={url || "about:blank"} 
+            src={url || "https://www.duckduckgo.com"} 
             className="w-full h-full" 
           />
         </CardContent>
