@@ -25,6 +25,21 @@ let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
 app.commandLine.appendSwitch('enable-unsafe-webgpu')
 let pendingRequests = new Map<string, any>()
+
+// Add this type at the top of the file
+interface NetworkRequestResponse {
+  url: string
+  method: string
+  requestHeaders?: Record<string, string>
+  requestBody?: string
+  responseHeaders?: Record<string, string>
+  responseBody?: string
+  statusCode?: number
+  timestamp: string
+  type?: string
+  resourceType?: string
+}
+
 function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
 
@@ -91,12 +106,9 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  mainWindow.webContents.session.setPermissionRequestHandler(
-    (webContents, permission, callback) => {
-      const allowedPermissions = ['media', 'geolocation', 'notifications', 'fullscreen']
-      callback(allowedPermissions.includes(permission))
-    }
-  )
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(true)
+  })
 
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
     return true
@@ -107,7 +119,12 @@ function createWindow(): void {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http: ws:"
+          "default-src 'self' * data: 'unsafe-inline' 'unsafe-eval' ws: wss:; " +
+          "script-src 'self' * 'unsafe-inline' 'unsafe-eval'; " +
+          "style-src 'self' * 'unsafe-inline'; " +
+          "img-src 'self' * data: blob: 'unsafe-inline'; " +
+          "font-src 'self' * data:; " +
+          "connect-src 'self' * ws: wss:;"
         ]
       }
     })
@@ -137,81 +154,162 @@ function createWindow(): void {
     const contents = webContents.fromId(webContentsId)
     if (!contents) return
 
-    if (!contents.debugger.isAttached()) {
-      try {
-        contents.debugger.attach('1.3')
-        contents.debugger.sendCommand('Network.enable')
-        contents.debugger.sendCommand('Network.setRequestInterception', { patterns: [{ urlPattern: '*' }] })
+    if (contents.getType() === 'webview') {
+      const webviewSession = contents.session
+      const pendingWebviewRequests = new Map<string, NetworkRequestResponse>()
 
-        contents.debugger.on('message', async (event, method, params) => {
-          switch (method) {
-            case 'Network.requestWillBeSent': {
-              const request = {
-                url: params.request.url,
-                method: params.request.method,
-                headers: params.request.headers,
-                body: params.request.postData,
-                timestamp: params.timestamp,
-                resourceType: params.type
-              }
-              
-              pendingRequests.set(params.requestId, request)
-              break
-            }
+      webviewSession.webRequest.onBeforeRequest((details, callback) => {
+        console.log('Webview request started:', details.url)
+        
+        pendingWebviewRequests.set(details.id, {
+          url: details.url,
+          method: details.method,
+          timestamp: new Date().toISOString(),
+          requestBody: details.uploadData?.[0]?.bytes?.toString() || undefined
+        })
+        
+        callback({})
+      })
 
-            case 'Network.responseReceived': {
-              try {
-                const response = await contents.debugger.sendCommand('Network.getResponseBody', {
-                  requestId: params.requestId
-                })
+      webviewSession.webRequest.onBeforeSendHeaders((details, callback) => {
+        const request = pendingWebviewRequests.get(details.id)
+        if (request) {
+          request.requestHeaders = details.requestHeaders as Record<string, string>
+        }
+        
+        const requestHeaders = {
+          ...details.requestHeaders,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        callback({ requestHeaders })
+      })
 
-                const responseBody = response.base64Encoded
-                  ? Buffer.from(response.body, 'base64').toString()
-                  : response.body
-
-                const originalRequest = pendingRequests.get(params.requestId)
-
-                const pair = {
-                  requestId: params.requestId,
-                  request: originalRequest,
-                  response: {
-                    url: params.response.url,
-                    status: params.response.status,
-                    headers: params.response.headers,
-                    body: responseBody,
-                    timestamp: params.timestamp,
-                    mimeType: params.response.mimeType
-                  }
-                }
-                
-                mainWindow?.webContents.send('network-request-complete', pair)
-
-                pendingRequests.delete(params.requestId)
-              } catch (error) {
-                console.log('Could not get response body:', error)
-                pendingRequests.delete(params.requestId)
-              }
-              break
-            }
+      webviewSession.webRequest.onHeadersReceived((details, callback) => {
+        const request = pendingWebviewRequests.get(details.id)
+        if (request) {
+          request.responseHeaders = details.responseHeaders as Record<string, string>
+          request.statusCode = details.statusCode
+        }
+        
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            'Content-Security-Policy': [
+              "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
+              "script-src * 'unsafe-inline' 'unsafe-eval'; " +
+              "connect-src * 'unsafe-inline'; " +
+              "img-src * data: blob: 'unsafe-inline'; " +
+              "frame-src *; " +
+              "style-src * 'unsafe-inline';"
+            ]
           }
         })
+      })
 
-      } catch (err) {
-        console.log('Debugger attach failed:', err)
-      }
-    }
+      webviewSession.webRequest.onCompleted(async (details) => {
+        if (details.fromCache) return
 
-    // Clean up when webContents is destroyed
-    contents.on('destroyed', () => {
-      if (contents.debugger.isAttached()) {
+        const request = pendingWebviewRequests.get(details.id)
+        if (request) {
+          // Try to get response body for text-based content
+          if (details.responseHeaders?.['content-type']?.some(type => 
+            type.includes('text') || 
+            type.includes('json') || 
+            type.includes('javascript') ||
+            type.includes('xml')
+          )) {
+            try {
+              const response = await contents.executeJavaScript(`
+                fetch("${details.url}").then(r => r.text())
+              `)
+              request.responseBody = response
+            } catch (error) {
+              console.log('Could not get response body:', error)
+            }
+          }
+
+          console.log('Sending network request to API:', request)
+
+          const response = await fetch('http://localhost:8000/learn', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify([request])
+          })
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+          pendingWebviewRequests.delete(details.id)
+
+          return { success: true }
+
+
+
+          mainWindow?.webContents.send('network-request-complete', request)
+        }
+      })
+
+    } else {
+      // Original debugger code for main window
+      if (!contents.debugger.isAttached()) {
         try {
-          contents.debugger.detach()
-          pendingRequests.clear()
+          contents.debugger.attach('1.3')
+          contents.debugger.sendCommand('Network.enable')
+          contents.debugger.sendCommand('Network.setRequestInterception', { patterns: [{ urlPattern: '*' }] })
+
+          contents.debugger.on('message', async (event, method, params) => {
+            switch (method) {
+              case 'Network.requestWillBeSent': {
+                const request: NetworkRequestResponse = {
+                  url: params.request.url,
+                  method: params.request.method,
+                  requestHeaders: params.request.headers,
+                  requestBody: params.request.postData,
+                  timestamp: new Date(params.timestamp * 1000).toISOString(),
+                  resourceType: params.type
+                }
+                
+                pendingRequests.set(params.requestId, request)
+                break
+              }
+
+              case 'Network.responseReceived': {
+                try {
+                  const response = await contents.debugger.sendCommand('Network.getResponseBody', {
+                    requestId: params.requestId
+                  })
+
+                  const responseBody = response.base64Encoded
+                    ? Buffer.from(response.body, 'base64').toString()
+                    : response.body
+
+                  const request = pendingRequests.get(params.requestId)
+                  if (request) {
+                    request.responseHeaders = params.response.headers
+                    request.responseBody = responseBody
+                    request.statusCode = params.response.status
+                    
+                    console.log('Complete network request:', request)
+                    mainWindow?.webContents.send('network-request-complete', request)
+                  }
+
+                  pendingRequests.delete(params.requestId)
+                } catch (error) {
+                  console.log('Could not get response body:', error)
+                  pendingRequests.delete(params.requestId)
+                }
+                break
+              }
+            }
+          })
+
         } catch (err) {
-          console.log('Error detaching debugger:', err)
+          console.log('Debugger attach failed:', err)
         }
       }
-    })
+    }
   })
 }
 
@@ -290,5 +388,47 @@ app.on('web-contents-created', (_, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
+  })
+})
+
+app.on('web-contents-created', (_, contents) => {
+  if (contents.getType() === 'webview') {
+    // Handle new-window events in webview
+    contents.setWindowOpenHandler(({ url }) => {
+      shell.openExternal(url)
+      return { action: 'deny' }
+    })
+
+    // Enable navigation features
+    contents.on('will-navigate', (event, url) => {
+      console.log('Webview navigating to:', url)
+    })
+
+    // Security features
+    contents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowedPermissions = [
+        'media',
+        'geolocation',
+        'notifications',
+        'fullscreen',
+        'clipboard-read',
+        'clipboard-write'
+      ]
+      callback(allowedPermissions.includes(permission))
+    })
+  }
+})
+
+app.on('ready', () => {
+  session.fromPartition('persist:main').setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = [
+      'media',
+      'geolocation',
+      'notifications',
+      'fullscreen',
+      'clipboard-read',
+      'clipboard-write'
+    ]
+    callback(allowedPermissions.includes(permission))
   })
 })

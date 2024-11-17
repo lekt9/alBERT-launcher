@@ -83,149 +83,48 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
 
       const handleDomReady = (): void => {
         setIsReady(true)
-
+        
         if (webview.current) {
+          // Enable required webview features through JavaScript instead of attributes
+          webview.current.executeJavaScript(`
+            document.body.style.userSelect = 'none';
+            document.body.style.webkitUserSelect = 'none';
+          `)
+          
           const webContentsId = webview.current.getWebContentsId()
           if (webContentsId) {
-            // Set up network monitoring
             window.electronIpc.send('setup-web-request-monitoring', webContentsId)
-
-            // Track request bodies and headers
-            const requestBodies = new Map<string, any>()
-
-            // Monitor network responses
-            const responseHandler = async (data: NetworkResponseEvent) => {
-              console.log('Network response captured:', data)
-              // Process headers to ensure they're all strings
-              const processHeaders = (
-                headers: Record<string, string | string[]>
-              ): Record<string, string> => {
-                const processed: Record<string, string> = {}
-                Object.entries(headers || {}).forEach(([key, value]) => {
-                  processed[key] = Array.isArray(value) ? value.join(', ') : String(value)
-                })
-                return processed
-              }
-
-              // Use headers from the response event
-              const requestHeaders = data.request.headers
-              console.log('Request headers:', requestHeaders)
-              // Create network pair object with processed headers
-              const networkPair: NetworkPair = {
-                url: data.request.url,
-                method: data.request.method,
-                request_headers: requestHeaders,
-                request_body: requestBodies.get(data.request.url) || null,
-                response_headers: processHeaders(data.response.headers || {}),
-                response_body: data.response.body || null,
-                status_code: data.response.status
-              }
-
-              console.log('Sending network pair:', networkPair)
-
-              // Send to local API
-              await sendNetworkPair(networkPair)
-
-              // Process HTML content if needed
-              if (data.response.headers['content-type']?.includes('text/html')) {
-                try {
-                  const content = await webview.current?.executeJavaScript(`
-                      new Promise((resolve) => {
-                        const content = {
-                          title: document.title,
-                          content: document.documentElement.outerHTML,
-                          text: document.body.innerText
-                        };
-                        resolve(content);
-                      })
-                    `)
-
-                  if (content) {
-                    await processContent(content.content, data.request.url, content.title)
-                  }
-                } catch (error) {
-                  console.error('Error processing network content:', error)
-                }
-              }
-
-              // Cleanup
-              requestMap.current.delete(data.requestId)
-              requestBodies.delete(data.request.url)
-              requestHeaders.delete(data.request.url)
-            }
-
-            // Remove existing listeners first
-            window.electronIpc.removeListener('network-request-complete', responseHandler)
-
-            // Add new listeners
-            window.electronIpc.on('network-request-complete', responseHandler)
           }
         }
+      }
 
-        // Add custom CSS
-        webview.current?.insertCSS(`
-          * {
-            outline: none !important;
-            scroll-behavior: smooth;
-          }
-          ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-          }
-          ::-webkit-scrollbar-track {
-            background: transparent;
-          }
-          ::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 4px;
-          }
-        `)
+      const handleDidFailLoad = (e: Electron.DidFailLoadEvent): void => {
+        console.error('Failed to load:', e.errorDescription)
+        // Optionally implement error handling UI here
       }
 
       const handleNavigation = (e: Electron.DidNavigateEvent): void => {
+        console.log('Navigation event:', e.url)
         if (shouldHandleNavigation(e.url)) {
           onNavigate(e.url, webview.current?.getTitle())
-          // Process page content after navigation
-          webview.current
-            ?.executeJavaScript(
-              `
-            new Promise((resolve) => {
-              const content = {
-                title: document.title,
-                content: document.documentElement.outerHTML,
-                text: document.body.innerText
-              };
-              resolve(content);
-            })
-          `
-            )
-            .then((content) => {
-              if (content) {
-                processContent(content.content, e.url, content.title)
-              }
-            })
-        }
-      }
-
-      const handleTitleUpdate = (e: Electron.PageTitleUpdatedEvent): void => {
-        const currentUrl = webview.current?.getURL() || ''
-        if (shouldHandleNavigation(currentUrl)) {
-          onNavigate(currentUrl, e.title)
         }
       }
 
       webview.current.addEventListener('dom-ready', handleDomReady)
+      webview.current.addEventListener('did-fail-load', handleDidFailLoad)
       webview.current.addEventListener('did-navigate', handleNavigation)
-      webview.current.addEventListener('page-title-updated', handleTitleUpdate)
+      webview.current.addEventListener('will-navigate', (e) => {
+        console.log('Will navigate to:', e.url)
+      })
 
       return () => {
         if (webview.current) {
           webview.current.removeEventListener('dom-ready', handleDomReady)
+          webview.current.removeEventListener('did-fail-load', handleDidFailLoad)
           webview.current.removeEventListener('did-navigate', handleNavigation)
-          webview.current.removeEventListener('page-title-updated', handleTitleUpdate)
         }
       }
-    }, [ref, onNavigate, onNetworkContent])
+    }, [ref, onNavigate])
 
     const shouldHandleNavigation = (newUrl: string): boolean => {
       const now = Date.now()
@@ -240,7 +139,13 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
     return (
       <Card className="flex-1 bg-background/95 shadow-lg flex flex-col h-full">
         <CardContent className="p-0 flex-1">
-          <webview ref={ref} src={url || 'about:blank'} className="w-full h-full" />
+          <webview 
+            ref={ref} 
+            src={url || 'about:blank'} 
+            className="w-full h-full"
+            partition="persist:main"
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          />
         </CardContent>
       </Card>
     )
