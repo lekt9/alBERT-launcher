@@ -228,14 +228,21 @@ function createWindow(): void {
             }
           }
 
-          console.log('Sending network request to API:', request)
+          const payload = {
+            url: request.url,
+            method: request.method,
+            request_body: request.requestBody,
+            request_headers: request.requestHeaders,
+            response_body: request.responseBody,
+            status_code: request.statusCode
+          }
 
           const response = await fetch('http://localhost:8000/learn', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify([request])
+            body: JSON.stringify([payload])
           })
 
           if (!response.ok) {
