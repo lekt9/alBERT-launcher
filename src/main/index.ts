@@ -24,6 +24,7 @@ process.env.APP_ROOT = path.join(__dirname, '..')
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
 app.commandLine.appendSwitch('enable-unsafe-webgpu')
+let pendingRequests = new Map<string, any>()
 function createWindow(): void {
   const currentScreen = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
 
@@ -139,12 +140,9 @@ function createWindow(): void {
     if (!contents.debugger.isAttached()) {
       try {
         contents.debugger.attach('1.3')
-        
-        // Enable network tracking with response body capture
         contents.debugger.sendCommand('Network.enable')
         contents.debugger.sendCommand('Network.setRequestInterception', { patterns: [{ urlPattern: '*' }] })
 
-        // Listen for CDP events
         contents.debugger.on('message', async (event, method, params) => {
           switch (method) {
             case 'Network.requestWillBeSent': {
@@ -156,14 +154,13 @@ function createWindow(): void {
                 timestamp: params.timestamp,
                 resourceType: params.type
               }
-
-              mainWindow?.webContents.send('network-request-captured', request)
+              
+              pendingRequests.set(params.requestId, request)
               break
             }
 
             case 'Network.responseReceived': {
               try {
-                // Get response body right after receiving the response
                 const response = await contents.debugger.sendCommand('Network.getResponseBody', {
                   requestId: params.requestId
                 })
@@ -172,10 +169,11 @@ function createWindow(): void {
                   ? Buffer.from(response.body, 'base64').toString()
                   : response.body
 
-                  console.log({responseBody})
+                const originalRequest = pendingRequests.get(params.requestId)
 
-                mainWindow?.webContents.send('network-response-captured', {
+                const pair = {
                   requestId: params.requestId,
+                  request: originalRequest,
                   response: {
                     url: params.response.url,
                     status: params.response.status,
@@ -184,21 +182,14 @@ function createWindow(): void {
                     timestamp: params.timestamp,
                     mimeType: params.response.mimeType
                   }
-                })
+                }
+                
+                mainWindow?.webContents.send('network-request-complete', pair)
+
+                pendingRequests.delete(params.requestId)
               } catch (error) {
                 console.log('Could not get response body:', error)
-                // Still send the response without body
-                mainWindow?.webContents.send('network-response-captured', {
-                  requestId: params.requestId,
-                  response: {
-                    url: params.response.url,
-                    status: params.response.status,
-                    headers: params.response.headers,
-                    body: null,
-                    timestamp: params.timestamp,
-                    mimeType: params.response.mimeType
-                  }
-                })
+                pendingRequests.delete(params.requestId)
               }
               break
             }
@@ -215,6 +206,7 @@ function createWindow(): void {
       if (contents.debugger.isAttached()) {
         try {
           contents.debugger.detach()
+          pendingRequests.clear()
         } catch (err) {
           console.log('Error detaching debugger:', err)
         }

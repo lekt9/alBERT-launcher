@@ -15,13 +15,13 @@ interface BrowserWindowProps {
 }
 
 interface NetworkPair {
-  url: string;
-  method: string;
-  request_headers: Record<string, string>;
-  request_body: any;
-  response_headers: Record<string, string>;
-  response_body: any;
-  status_code: number;
+  url: string
+  method: string
+  request_headers: Record<string, string>
+  request_body: any
+  response_headers: Record<string, string>
+  response_body: any
+  status_code: number
 }
 
 const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
@@ -67,15 +67,15 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
     // Add function to send network pair to local API
     const sendNetworkPair = async (pair: NetworkPair) => {
       try {
-        const result = await trpcClient.network.addPair.mutate(pair);
+        const result = await trpcClient.network.addPair.mutate(pair)
         if (!result.success) {
-          throw new Error(result.error);
+          throw new Error(result.error)
         }
-        console.log('Successfully sent network pair to API');
+        console.log('Successfully sent network pair to API')
       } catch (error) {
-        console.error('Error sending network pair to API:', error);
+        console.error('Error sending network pair to API:', error)
       }
-    };
+    }
 
     useEffect(() => {
       const webview = ref as React.RefObject<Electron.WebviewTag>
@@ -91,61 +91,45 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
             window.electronIpc.send('setup-web-request-monitoring', webContentsId)
 
             // Track request bodies and headers
-            const requestBodies = new Map<string, any>();
-            const requestHeaders = new Map<string, Record<string, string>>();
-
-            // Monitor network requests
-            const requestHandler = (request: NetworkRequest) => {
-              console.log('Network request captured:', request)
-              requestMap.current.set(request.url, {
-                ...request,
-                headers: { ...request.headers }
-              })
-              // Store request headers directly from the request object
-              requestHeaders.set(request.url, { ...request.headers });
-              // Store request body if it exists
-              if (request.body) {
-                requestBodies.set(request.url, request.body);
-              }
-            }
+            const requestBodies = new Map<string, any>()
 
             // Monitor network responses
             const responseHandler = async (data: NetworkResponseEvent) => {
               console.log('Network response captured:', data)
-              const request = requestMap.current.get(data.requestId)
-              if (request) {
-                // Process headers to ensure they're all strings
-                const processHeaders = (headers: Record<string, string | string[]>): Record<string, string> => {
-                  const processed: Record<string, string> = {};
-                  Object.entries(headers || {}).forEach(([key, value]) => {
-                    processed[key] = Array.isArray(value) ? value.join(', ') : String(value);
-                  });
-                  return processed;
-                };
+              // Process headers to ensure they're all strings
+              const processHeaders = (
+                headers: Record<string, string | string[]>
+              ): Record<string, string> => {
+                const processed: Record<string, string> = {}
+                Object.entries(headers || {}).forEach(([key, value]) => {
+                  processed[key] = Array.isArray(value) ? value.join(', ') : String(value)
+                })
+                return processed
+              }
 
-                // Use headers from the response event
-                const requestHeaders = data.request.headers;
-                console.log('Request headers:', requestHeaders);
-                // Create network pair object with processed headers
-                const networkPair: NetworkPair = {
-                  url: request.url,
-                  method: request.method,
-                  request_headers: requestHeaders,
-                  request_body: requestBodies.get(request.url) || null,
-                  response_headers: processHeaders(data.response.headers || {}),
-                  response_body: data.response.body || null,
-                  status_code: data.response.status
-                };
+              // Use headers from the response event
+              const requestHeaders = data.request.headers
+              console.log('Request headers:', requestHeaders)
+              // Create network pair object with processed headers
+              const networkPair: NetworkPair = {
+                url: data.request.url,
+                method: data.request.method,
+                request_headers: requestHeaders,
+                request_body: requestBodies.get(data.request.url) || null,
+                response_headers: processHeaders(data.response.headers || {}),
+                response_body: data.response.body || null,
+                status_code: data.response.status
+              }
 
-                console.log('Sending network pair:', networkPair);
+              console.log('Sending network pair:', networkPair)
 
-                // Send to local API
-                await sendNetworkPair(networkPair);
+              // Send to local API
+              await sendNetworkPair(networkPair)
 
-                // Process HTML content if needed
-                if (data.response.headers['content-type']?.includes('text/html')) {
-                  try {
-                    const content = await webview.current?.executeJavaScript(`
+              // Process HTML content if needed
+              if (data.response.headers['content-type']?.includes('text/html')) {
+                try {
+                  const content = await webview.current?.executeJavaScript(`
                       new Promise((resolve) => {
                         const content = {
                           title: document.title,
@@ -156,28 +140,25 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
                       })
                     `)
 
-                    if (content) {
-                      await processContent(content.content, request.url, content.title)
-                    }
-                  } catch (error) {
-                    console.error('Error processing network content:', error)
+                  if (content) {
+                    await processContent(content.content, data.request.url, content.title)
                   }
+                } catch (error) {
+                  console.error('Error processing network content:', error)
                 }
-                
-                // Cleanup
-                requestMap.current.delete(data.requestId)
-                requestBodies.delete(request.url)
-                requestHeaders.delete(request.url)
               }
+
+              // Cleanup
+              requestMap.current.delete(data.requestId)
+              requestBodies.delete(data.request.url)
+              requestHeaders.delete(data.request.url)
             }
 
             // Remove existing listeners first
-            window.electronIpc.removeListener('network-request-captured', requestHandler)
-            window.electronIpc.removeListener('network-response-captured', responseHandler)
+            window.electronIpc.removeListener('network-request-complete', responseHandler)
 
             // Add new listeners
-            window.electronIpc.on('network-request-captured', requestHandler)
-            window.electronIpc.on('network-response-captured', responseHandler)
+            window.electronIpc.on('network-request-complete', responseHandler)
           }
         }
 
@@ -205,7 +186,9 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
         if (shouldHandleNavigation(e.url)) {
           onNavigate(e.url, webview.current?.getTitle())
           // Process page content after navigation
-          webview.current?.executeJavaScript(`
+          webview.current
+            ?.executeJavaScript(
+              `
             new Promise((resolve) => {
               const content = {
                 title: document.title,
@@ -214,11 +197,13 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
               };
               resolve(content);
             })
-          `).then(content => {
-            if (content) {
-              processContent(content.content, e.url, content.title)
-            }
-          })
+          `
+            )
+            .then((content) => {
+              if (content) {
+                processContent(content.content, e.url, content.title)
+              }
+            })
         }
       }
 
@@ -238,19 +223,6 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
           webview.current.removeEventListener('dom-ready', handleDomReady)
           webview.current.removeEventListener('did-navigate', handleNavigation)
           webview.current.removeEventListener('page-title-updated', handleTitleUpdate)
-          
-          // Remove network listeners
-          const requestHandler = (request: NetworkRequest) => {
-            requestMap.current.set(request.url, request)
-          }
-          const responseHandler = async (data: NetworkResponseEvent) => {
-            const request = requestMap.current.get(data.requestId)
-            if (request) {
-              requestMap.current.delete(data.requestId)
-            }
-          }
-          window.electronIpc.removeListener('network-request-captured', requestHandler)
-          window.electronIpc.removeListener('network-response-captured', responseHandler)
         }
       }
     }, [ref, onNavigate, onNetworkContent])
@@ -268,11 +240,7 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
     return (
       <Card className="flex-1 bg-background/95 shadow-lg flex flex-col h-full">
         <CardContent className="p-0 flex-1">
-          <webview 
-            ref={ref} 
-            src={url || "about:blank"} 
-            className="w-full h-full" 
-          />
+          <webview ref={ref} src={url || 'about:blank'} className="w-full h-full" />
         </CardContent>
       </Card>
     )
