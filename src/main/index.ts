@@ -17,7 +17,7 @@ import path from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import { createIPCHandler } from 'electron-trpc/main'
 import { getRouter } from './api'
-
+import { URL } from 'url'
 
 // Global variables
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -66,8 +66,8 @@ function createWindow(): void {
 
   if (!is.dev) {
     mainWindow?.on('blur', () => {
-      mainWindow?.webContents.send('window-blur');
-      globalShortcut.unregisterAll();
+      mainWindow?.webContents.send('window-blur')
+      globalShortcut.unregisterAll()
     })
   }
 
@@ -90,93 +90,136 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'geolocation', 'notifications', 'fullscreen'];
-    callback(allowedPermissions.includes(permission));
-  });
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      const allowedPermissions = ['media', 'geolocation', 'notifications', 'fullscreen']
+      callback(allowedPermissions.includes(permission))
+    }
+  )
 
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    return true;
-  });
+    return true
+  })
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http: ws:"]
+        'Content-Security-Policy': [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: http: ws:"
+        ]
       }
-    });
-  });
+    })
+  })
 
   mainWindow.on('focus', () => {
-    mainWindow?.webContents.send('window-focus');
-    registerShortcuts();
-  });
+    mainWindow?.webContents.send('window-focus')
+    registerShortcuts()
+  })
 
   function registerShortcuts() {
     globalShortcut.register('CommandOrControl+F', () => {
-      mainWindow?.webContents.send('find-in-page');
-    });
+      mainWindow?.webContents.send('find-in-page')
+    })
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
 
   app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
-  });
+    globalShortcut.unregisterAll()
+  })
 
   ipcMain.on('setup-web-request-monitoring', (event, webContentsId) => {
     const contents = webContents.fromId(webContentsId)
     if (!contents) return
 
-    // Store headers for each request
-    const requestHeadersMap = new Map<string, Record<string, string | string[]>>();
+    if (!contents.debugger.isAttached()) {
+      try {
+        contents.debugger.attach('1.3')
+        
+        // Enable network tracking with response body capture
+        contents.debugger.sendCommand('Network.enable')
+        contents.debugger.sendCommand('Network.setRequestInterception', { patterns: [{ urlPattern: '*' }] })
 
-    // Capture requests with headers
-    contents.session.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-      // Store headers for this request
-      requestHeadersMap.set(details.url, details.requestHeaders || {});
+        // Listen for CDP events
+        contents.debugger.on('message', async (event, method, params) => {
+          switch (method) {
+            case 'Network.requestWillBeSent': {
+              const request = {
+                url: params.request.url,
+                method: params.request.method,
+                headers: params.request.headers,
+                body: params.request.postData,
+                timestamp: params.timestamp,
+                resourceType: params.type
+              }
 
-      event.sender.send('network-request-captured', {
-        url: details.url,
-        method: details.method,
-        headers: details.requestHeaders || {},
-        resourceType: details.resourceType,
-        timestamp: new Date().toISOString(),
-        body: details.uploadData?.[0]?.bytes?.toString() || null
-      })
-      callback({ requestHeaders: details.requestHeaders })
-    })
+              mainWindow?.webContents.send('network-request-captured', request)
+              break
+            }
 
-    // Capture responses with headers and body
-    contents.session.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
-      // Get stored request headers
-      const requestHeaders = requestHeadersMap.get(details.url) || {};
-      
-      event.sender.send('network-response-captured', {
-        requestId: details.url,
-        response: {
-          status: details.statusCode,
-          headers: details.responseHeaders || {},
-          body: details.responseBody,
-          timestamp: new Date().toISOString()
-        },
-        request: {
-          headers: requestHeaders
+            case 'Network.responseReceived': {
+              try {
+                // Get response body right after receiving the response
+                const response = await contents.debugger.sendCommand('Network.getResponseBody', {
+                  requestId: params.requestId
+                })
+
+                const responseBody = response.base64Encoded
+                  ? Buffer.from(response.body, 'base64').toString()
+                  : response.body
+
+                  console.log({responseBody})
+
+                mainWindow?.webContents.send('network-response-captured', {
+                  requestId: params.requestId,
+                  response: {
+                    url: params.response.url,
+                    status: params.response.status,
+                    headers: params.response.headers,
+                    body: responseBody,
+                    timestamp: params.timestamp,
+                    mimeType: params.response.mimeType
+                  }
+                })
+              } catch (error) {
+                console.log('Could not get response body:', error)
+                // Still send the response without body
+                mainWindow?.webContents.send('network-response-captured', {
+                  requestId: params.requestId,
+                  response: {
+                    url: params.response.url,
+                    status: params.response.status,
+                    headers: params.response.headers,
+                    body: null,
+                    timestamp: params.timestamp,
+                    mimeType: params.response.mimeType
+                  }
+                })
+              }
+              break
+            }
+          }
+        })
+
+      } catch (err) {
+        console.log('Debugger attach failed:', err)
+      }
+    }
+
+    // Clean up when webContents is destroyed
+    contents.on('destroyed', () => {
+      if (contents.debugger.isAttached()) {
+        try {
+          contents.debugger.detach()
+        } catch (err) {
+          console.log('Error detaching debugger:', err)
         }
-      })
-
-      // Clean up stored headers
-      requestHeadersMap.delete(details.url);
+      }
     })
-
-    // Clean up on navigation
-    contents.on('did-navigate', () => {
-      requestHeadersMap.clear();
-    });
   })
 }
 

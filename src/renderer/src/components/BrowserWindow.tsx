@@ -126,7 +126,6 @@ const BrowserWindow = forwardRef<Electron.WebviewTag, BrowserWindowProps>(
                 // Use headers from the response event
                 const requestHeaders = data.request.headers;
                 console.log('Request headers:', requestHeaders);
-
                 // Create network pair object with processed headers
                 const networkPair: NetworkPair = {
                   url: request.url,
