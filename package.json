@@ -1,6 +1,6 @@
 {
   "name": "albert-launcher",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "AI-powered file launcher and semantic search assistant. Like Spotlight/Alfred but with advanced AI capabilities for understanding context and meaning. Features local processing, privacy-first design, and seamless integration with your workflow.",
   "keywords": [
     "ai",

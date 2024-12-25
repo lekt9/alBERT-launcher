@@ -1,3 +1,12 @@
+# [2.0.0](https://github.com/lekt9/albert-launcher/compare/v1.0.2...v2.0.0) (2024-12-25)
+
+
+### Bug Fixes
+
+* username ([2053879](https://github.com/lekt9/albert-launcher/commit/20538796f0fc986bf32a13f2aebfb5c3d7df39a2))
+
+
+
 ## 1.0.2 (2024-12-25)
 
 
