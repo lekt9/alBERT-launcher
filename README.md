@@ -23,7 +23,7 @@ Your AI-powered file launcher and search assistant. Think Spotlight or Alfred, b
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/albert-launcher
+git clone https://github.com/lekt9/albert-launcher
 cd albert-launcher
 
 # Install dependencies
@@ -614,4 +614,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-If you encounter any issues or have questions, please file an issue on our [GitHub Issues](https://github.com/yourusername/alBERT-launcher/issues) page.
+If you encounter any issues or have questions, please file an issue on our [GitHub Issues](https://github.com/lekt9/alBERT-launcher/issues) page.
