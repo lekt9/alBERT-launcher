@@ -16,21 +16,21 @@ extraResources:
 asar: false
 asarUnpack:
   - resources/**
-afterSign: build/notarize.js
 mac:
   category: "public.app-category.developer-tools"
-  hardenedRuntime: true
-  gatekeeperAssess: false
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
-  artifactName: ${name}-osx-${arch}.${ext}
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
   target:
-    - target: "default"
+    - target: dmg
       arch:
         - x64
         - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  identity: null
 win:
-  artifactName: ${name}-win-${arch}.${ext}
+  artifactName: ${name}-${version}-win-${arch}.${ext}
   target:
     - target: nsis
       arch:
@@ -38,7 +38,7 @@ win:
   icon: build/icon.ico
   publisherName: alBERT
 linux:
-  artifactName: ${name}.${ext}
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
   target:
     - target: deb
       arch:
@@ -46,5 +46,5 @@ linux:
   maintainer: electronjs.org
   category: Utility
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  releaseType: release

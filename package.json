@@ -1,10 +1,31 @@
 {
   "name": "albert-launcher",
   "version": "1.0.0",
-  "description": "The assistant that aggregates knowledge.",
+  "description": "AI-powered file launcher and semantic search assistant. Like Spotlight/Alfred but with advanced AI capabilities for understanding context and meaning. Features local processing, privacy-first design, and seamless integration with your workflow.",
+  "keywords": [
+    "ai",
+    "semantic-search",
+    "file-launcher",
+    "electron",
+    "typescript",
+    "spotlight",
+    "alfred-alternative",
+    "local-ai",
+    "ollama",
+    "privacy-focused",
+    "vector-search",
+    "document-search",
+    "natural-language-search",
+    "productivity-tool",
+    "desktop-application"
+  ],
   "main": "./out/main/index.js",
   "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "homepage": "https://github.com/yourusername/albert-launcher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/albert-launcher.git"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
@@ -19,7 +40,10 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "build:all": "electron-vite build && electron-builder --linux --mac --win"
+    "build:all": "electron-vite build && electron-builder --linux --mac --win",
+    "release": "electron-builder --publish always",
+    "release:mac": "electron-builder --mac --publish always",
+    "version": "conventional-changelog -p angular -i CHANGELOG.md -s && git add CHANGELOG.md"
   },
   "dependencies": {
     "@ai-sdk/openai": "^0.0.72",

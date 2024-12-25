@@ -4,6 +4,38 @@ Your AI-powered file launcher and search assistant. Think Spotlight or Alfred, b
 
 ![alBERT-launcher Demo](demo.gif)
 
+## Installation
+
+### macOS
+
+1. Download the latest release for your architecture:
+   - For Apple Silicon (M1/M2): `albert-launcher-{version}-mac-arm64.dmg`
+   - For Intel: `albert-launcher-{version}-mac-x64.dmg`
+2. Open the DMG file and drag alBERT to your Applications folder
+3. Since the app is not signed with an Apple Developer certificate, you'll need to:
+   - Right-click (or Control-click) on alBERT in Applications
+   - Select "Open" from the context menu
+   - Click "Open" in the security dialog
+   - This is only required for the first launch
+4. Future launches will work normally using Alt+Space (or your configured shortcut)
+
+### From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/albert-launcher
+cd albert-launcher
+
+# Install dependencies
+npm install
+
+# Start the app in development mode
+npm run dev
+
+# Build the app
+npm run build
+```
+
 ## What Makes alBERT Different?
 
 Unlike traditional file search tools that rely on filename matching or basic content indexing, alBERT-launcher uses advanced semantic search and AI capabilities to understand the meaning behind your queries. It maintains a dedicated folder (`~/alBERT`) where it indexes and searches through your important documents, providing:
@@ -491,19 +523,6 @@ sequenceDiagram
 - pnpm package manager
 - Brave Search API key (optional)
 - OpenRouter API key (optional)
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/alBERT-launcher.git
-
-# Navigate to project directory
-cd alBERT-launcher
-
-# Install dependencies
-pnpm install
-```
 
 ## Development
 
