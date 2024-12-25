@@ -1,6 +1,6 @@
 # alBERT-launcher
 
-Your AI-powered file launcher and search assistant. Think Spotlight or Alfred, but with the intelligence to understand what you're looking for.
+Your AI-powered file launcher and search assistant. Think Spotlight or Alfred, but with the intelligence to understand what you're looking for. Press `Option (⌥) + Space` anywhere to start searching!
 
 ![alBERT-launcher Demo](demo.gif)
 
@@ -17,24 +17,15 @@ Your AI-powered file launcher and search assistant. Think Spotlight or Alfred, b
    - Select "Open" from the context menu
    - Click "Open" in the security dialog
    - This is only required for the first launch
-4. Future launches will work normally using Alt+Space (or your configured shortcut)
+4. Press `Option (⌥) + Space` anywhere to open alBERT!
 
-### From Source
+### Quick Tips
 
-```bash
-# Clone the repository
-git clone https://github.com/lekt9/albert-launcher
-cd albert-launcher
-
-# Install dependencies
-npm install
-
-# Start the app in development mode
-npm run dev
-
-# Build the app
-npm run build
-```
+- 🚀 **Launch**: Press `Option (⌥) + Space` anywhere to open alBERT
+- 🔍 **Search**: Just start typing - alBERT understands natural language
+- 💡 **Smart Results**: Results are ranked by relevance to your query
+- ⌨️ **Navigate**: Use arrow keys to move, Enter to open
+- ⚡️ **Quick Exit**: Press Esc to close
 
 ## What Makes alBERT Different?
 
@@ -43,7 +34,7 @@ Unlike traditional file search tools that rely on filename matching or basic con
 - **Semantic Search**: Find documents based on meaning, not just keywords
 - **AI-Powered Answers**: Get direct answers to questions about your documents
 - **Context-Aware Results**: Results are ranked based on relevance to your query context
-- **Instant Access**: Global shortcut (Alt+Space) to access from anywhere
+- **Instant Access**: Global shortcut (`Option (⌥) + Space`) to access from anywhere
 
 ## How It Works
 
@@ -128,7 +119,7 @@ sequenceDiagram
 - 🤖 AI-powered answers using Perplexity
 - 🔍 Semantic search capabilities
 - 🌐 Web search integration with Brave Search
-- ⌨️ Global keyboard shortcuts (Alt+Space)
+- ⌨️ Global keyboard shortcuts (`Option (⌥) + Space`)
 - 💾 Smart caching system
 - 🎯 Context-aware search results
 - 📱 Modern, responsive UI

@@ -13,9 +13,7 @@ files:
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
 extraResources:
   - lib
-asar: false
-asarUnpack:
-  - resources/**
+asar: true
 mac:
   category: "public.app-category.developer-tools"
   artifactName: ${name}-${version}-mac-${arch}.${ext}
@@ -29,6 +27,18 @@ mac:
         - x64
         - arm64
   identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  entitlements: null
+  entitlementsInherit: null
+  extendInfo:
+    NSAppleEventsUsageDescription: "Application requests access to Finder for file operations."
+    NSMicrophoneUsageDescription: "Application requires microphone access for voice commands."
+    NSDocumentsFolderUsageDescription: "Application requires access to the Documents folder."
+    NSDownloadsFolderUsageDescription: "Application requires access to the Downloads folder."
+dmg:
+  sign: false
+  writeUpdateInfo: false
 win:
   artifactName: ${name}-${version}-win-${arch}.${ext}
   target:

@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Install Node.js
         uses: actions/setup-node@v3
@@ -33,6 +35,8 @@ jobs:
         run: npm run build:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          ELECTRON_BUILDER_SIGN: false
+          DEBUG: electron-builder
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
