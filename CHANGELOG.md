@@ -1,3 +1,12 @@
+## [2.0.1](https://github.com/lekt9/albert-launcher/compare/v2.0.0...v2.0.1) (2024-12-25)
+
+
+### Bug Fixes
+
+* update electron-builder config for unsigned builds ([6d9c283](https://github.com/lekt9/albert-launcher/commit/6d9c283fb5d9b0d8395b9ef1b409e807ea4af91b))
+
+
+
 # [2.0.0](https://github.com/lekt9/albert-launcher/compare/v1.0.2...v2.0.0) (2024-12-25)
 
 
