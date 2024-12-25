@@ -26,9 +26,9 @@ const t = initTRPC.create({
   isServer: true
 })
 
-const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || 'BSAl9amg1Hel8m8nwWsszt-j6DuAXiZ')
+const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || '')
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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'
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || ''
 
 async function getPerplexityAnswer(searchTerm: string): Promise<SearchResult | null> {
   try {
