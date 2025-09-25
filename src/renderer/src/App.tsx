@@ -8,7 +8,9 @@ import React, {
   useReducer,
 } from 'react';
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
-import { getContextSimilarityScores, trpcClient } from './util/trpc-client';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { trpcClient } from './util/trpc-client';
 import { cn, debounce } from '@/lib/utils';
 import SearchBar from '@/components/SearchBar';
 import SearchResults from '@/components/SearchResults';
@@ -21,15 +23,28 @@ import {
 } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createContextMiddleware } from './lib/context-middleware';
-import { LLMSettings, ContextTab } from './types';
+import {
+  LLMSettings,
+  ContextTab,
+  SmitheryMCPServer,
+  SmitheryContextResult,
+  Source,
+  AIResponse,
+} from './types';
 import type { SearchBarRef } from '@/components/SearchBar';
-import { getRankedChunks, RankedChunk } from '@/lib/context-utils';
+import type {
+  CachedSearch,
+  PanelState,
+  SearchResult,
+  SearchState,
+  StickyNote,
+} from './types/search';
 const ResponsePanel = React.lazy(() => import('@/components/ResponsePanel'));
 import SearchBadges, { SearchStep } from '@/components/SearchBadges';
 import { v4 as uuidv4 } from 'uuid';
 import { AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
-import { Globe, FileText, X } from 'lucide-react';
+import { Globe, FileText, X, Sparkles, StickyNote, Library, Settings2, RadioTower } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -51,67 +66,16 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-
-interface SearchResult {
-  text: string;
-  dist: {
-    corpus_id: number;
-    score: number;
-    text: string;
-  };
-  metadata: {
-    path: string;
-    title?: string;
-    created_at: number;
-    modified_at: number;
-    filetype: string;
-    languages: string[];
-    links: string[];
-    owner: string | null;
-    seen_at: number;
-    sourceType?: 'document' | 'web';
-  };
-  queryContext?: {
-    query: string;
-    subQueries?: Array<{
-      query: string;
-      answer: string;
-    }>;
-  };
-}
-
-interface AIResponse {
-  question: string;
-  answer: string;
-  timestamp: number;
-  sources?: Source[];
-}
-
-// Add a new type for panel states
-type PanelState = 'none' | 'settings' | 'response' | 'document' | 'chat';
-
-// Add this interface near the top with other interfaces
-interface Source {
-  path: string;
-  preview?: string;
-  citations?: string[];
-  description?: string;
-}
-
-// Add this interface near the top
-interface CachedSearch {
-  query: string;
-  results: SearchResult[];
-  timestamp: number;
-}
-
-// Add these types near the top with other interfaces
-type SearchState =
-  | { status: 'idle' }
-  | { status: 'searching'; query: string; shouldChat?: boolean }
-  | { status: 'searched'; query: string; results: SearchResult[] }
-  | { status: 'chatting'; query: string; results: SearchResult[] }
-  | { status: 'error'; error: string };
+import { usePersistentState } from './hooks/usePersistentState';
+import {
+  createDefaultPrivateSettings,
+  createDefaultPublicSettings,
+} from './lib/default-settings';
+import SmitheryContextResults from '@/components/SmitheryContextResults';
+import { createSmitheryServerFromInput } from './lib/smithery';
+import { useSmitheryContext } from './hooks/useSmitheryContext';
+import { useContextScoring } from './hooks/useContextScoring';
+import { buildCombinedContext } from './lib/context-builder';
 
 // Add this reducer function before the App component
 function searchReducer(
@@ -169,7 +133,8 @@ const truncateText = (text: string, maxLength: number = 150): string => {
 const DropArea: React.FC<{
   children: React.ReactNode;
   onDrop: (item: any, position: { x: number; y: number }) => void;
-}> = ({ children, onDrop }) => {
+  className?: string;
+}> = ({ children, onDrop, className }) => {
   const [, drop] = useDrop({
     accept: 'searchResult',
     drop: (item: any, monitor) => {
@@ -181,11 +146,14 @@ const DropArea: React.FC<{
   });
 
   return (
-    <div ref={drop} className="h-screen w-screen">
+    <div ref={drop} className={cn('relative min-h-screen w-full overflow-hidden', className)}>
       {children}
     </div>
   );
 };
+
+const PANEL_BASE_CLASS =
+  'glass-panel relative flex w-full flex-col overflow-hidden rounded-[32px] border border-white/10 shadow-[0_40px_140px_-70px_rgba(15,23,42,0.85)] transition-all duration-300 hover:border-white/20';
 
 function App(): JSX.Element {
   // State Definitions
@@ -194,121 +162,88 @@ function App(): JSX.Element {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isPrivate, setIsPrivate] = useState<boolean>(() => {
-    const savedPrivacy = localStorage.getItem('llm-privacy');
-    return savedPrivacy ? JSON.parse(savedPrivacy) : false;
-  });
+  const [isPrivate, setIsPrivate] = usePersistentState<boolean>('llm-privacy', false);
   const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([]);
 
-  const [useAgent, setUseAgent] = useState<boolean>(() => {
-    const savedAgentPref = localStorage.getItem('use-agent');
-    return savedAgentPref ? JSON.parse(savedAgentPref) : true;
-  });
+  const [useAgent, setUseAgent] = usePersistentState<boolean>('use-agent', true);
 
-  const [privateSettings, setPrivateSettings] = useState<LLMSettings>(() => {
-    const saved = localStorage.getItem('llm-settings-private');
-    return saved
-      ? JSON.parse(saved)
-      : {
-          baseUrl: 'http://localhost:11434/v1',
-          apiKey: '',
-          model: 'llama3.2:3b',
-          modelType: 'ollama',
-        };
-  });
+  const [privateSettings, setPrivateSettings] = usePersistentState<LLMSettings>(
+    'llm-settings-private',
+    createDefaultPrivateSettings
+  );
 
-  const [publicSettings, setPublicSettings] = useState<LLMSettings>(() => {
-    const saved = localStorage.getItem('llm-settings-public');
-    return saved
-      ? JSON.parse(saved)
-      : {
-          baseUrl: 'https://openrouter.ai/api/v1',
-          apiKey:
-            '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',
-          model: 'openai/gpt-4o-mini',
-          modelType: 'openai',
-        };
-  });
+  const [publicSettings, setPublicSettings] = usePersistentState<LLMSettings>(
+    'llm-settings-public',
+    createDefaultPublicSettings
+  );
+
+  const [smitheryApiKey, setSmitheryApiKey] = usePersistentState<string>('smithery-api-key', '');
+  const [smitheryServers, setSmitheryServers] = usePersistentState<SmitheryMCPServer[]>(
+    'smithery-servers',
+    () => []
+  );
+  const [smitheryManualError, setSmitheryManualError] = useState<string | null>(null);
 
   const currentSettings = useMemo(
     () => (isPrivate ? privateSettings : publicSettings),
     [isPrivate, privateSettings, publicSettings]
   );
 
-  const provider =
-    currentSettings.modelType === 'openai'
-      ? createOpenAI({
-          apiKey: currentSettings.apiKey,
-          baseUrl: currentSettings.baseUrl,
-        })
-      : createOpenAI({
-          apiKey: currentSettings.apiKey,
-          baseUrl: 'http://localhost:11434/v1',
-        });
+  const activeSmitheryServers = useMemo(
+    () => smitheryServers.filter((server) => server.enabled !== false),
+    [smitheryServers]
+  );
+
+  const {
+    results: smitheryResults,
+    isLoading: isSmitheryLoading,
+    error: smitheryContextError,
+    refresh: refreshSmitheryContext,
+  } = useSmitheryContext({
+    query,
+    servers: smitheryServers,
+    apiKey: smitheryApiKey || undefined,
+    enabled: activeSmitheryServers.length > 0,
+  });
+
+  const smitheryError = smitheryContextError ?? smitheryManualError;
+
+  const provider = useMemo(() => {
+    if (currentSettings.modelType === 'openai') {
+      return createOpenAI({
+        apiKey: currentSettings.apiKey,
+        baseUrl: currentSettings.baseUrl,
+      });
+    }
+
+    return createOpenAI({
+      apiKey: currentSettings.apiKey,
+      baseUrl: currentSettings.baseUrl || 'http://localhost:11434/v1',
+    });
+  }, [currentSettings]);
 
   const [conversations, setConversations] = useState<AIResponse[]>([]);
 
-  // Add this utility function near the top
-  const combinedSearchContext = useMemo(() => {
-    const MAX_CONTEXT_LENGTH = 50000;
-    let context = '';
-
-    try {
-      // First, add all sticky notes to context as they are prioritized
-      const stickyContext = stickyNotes
-        .map((note) => {
-          const relevanceNote = ' (pinned)';
-          return `\n\nFrom ${note.metadata.path}${relevanceNote}:\n${note.text}`;
-        })
-        .join('');
-
-      // Get search results for scoring
-      const searchDocuments = searchResults.map((result) => ({
-        content: result.text,
-        path: result.metadata.path,
-        type: result.metadata.sourceType === 'web' ? 'web' : 'document',
-      }));
-
-      // Select search documents up to remaining length
-      let currentLength = stickyContext.length;
-      const selectedSearchDocs = searchDocuments.filter((doc) => {
-        const length = doc.content.length;
-        if (currentLength + length <= MAX_CONTEXT_LENGTH) {
-          currentLength += length;
-          return true;
-        }
-        return false;
-      });
-
-      // Build context with sticky notes first, then search results
-      context = stickyContext; // Start with sticky notes
-
-      // Add search results if there's space
-      if (selectedSearchDocs.length > 0) {
-        const searchContext = selectedSearchDocs
-          .map((doc) => `\n\nFrom ${doc.path}:\n${doc.content}`)
-          .join('');
-
-        context += searchContext;
-      }
-
-      return context.trim();
-    } catch (error) {
-      console.error('Error building context:', error);
-      return '';
-    }
-  }, [query, searchResults, stickyNotes]);
+  const combinedSearchContext = useMemo(
+    () =>
+      buildCombinedContext({
+        stickyNotes,
+        smitheryResults,
+        searchResults,
+      }),
+    [searchResults, smitheryResults, stickyNotes]
+  );
 
   // Update the activePanel state to use the new type
   const [activePanel, setActivePanel] = useState<PanelState>('response');
+  const toggleSettingsPanel = useCallback(() => {
+    setActivePanel((prev) => (prev === 'settings' ? 'response' : 'settings'));
+  }, []);
 
   const searchBarRef = useRef<SearchBarRef>(null);
 
   // Add this near your other state definitions
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
-
-  // Add to state definitions
-  const [rankedChunks, setRankedChunks] = useState<RankedChunk[]>([]);
 
   // Add cache state
   const [searchCache, setSearchCache] = useState<CachedSearch[]>([]);
@@ -329,73 +264,11 @@ function App(): JSX.Element {
     [searchCache]
   );
 
-  // Add effect to handle reranking
-  useEffect(() => {
-    const updateRankedChunks = async (): Promise<void> => {
-      const documents = [
-        ...searchResults.map((result) => ({
-          content: result.text,
-          path: result.metadata.path,
-          type: result.metadata.sourceType === 'web' ? 'web' : 'document',
-        })),
-      ];
-
-      const chunks = await getRankedChunks({
-        query,
-        documents,
-        chunkSize: 500,
-        minScore: 0.1,
-      });
-
-      setRankedChunks(chunks);
-    };
-
-    if (query && searchResults.length > 0) {
-      updateRankedChunks();
-    } else {
-      setRankedChunks([]);
-    }
-  }, [query, searchResults]);
-
-  // Add a separate effect to update similarity scores
-  const [documentScores, setDocumentScores] = useState<Map<string, number>>(
-    new Map()
-  );
-
-  useEffect(() => {
-    const updateSimilarityScores = async () => {
-      const documents = [
-        ...searchResults.map((result) => ({
-          content: result.text,
-          path: result.metadata.path,
-          type: result.metadata.sourceType === 'web' ? 'web' : 'document',
-        })),
-      ];
-
-      if (documents.length === 0) return;
-
-      try {
-        const similarityScores = await getContextSimilarityScores(
-          [query],
-          documents
-        );
-
-        const scoreMap = new Map<string, number>();
-        similarityScores.forEach((doc) => {
-          const score = doc.scores[0];
-          scoreMap.set(doc.path, score);
-        });
-
-        setDocumentScores(scoreMap);
-      } catch (error) {
-        console.error('Error calculating similarity scores:', error);
-      }
-    };
-
-    if (query) {
-      updateSimilarityScores();
-    }
-  }, [query, searchResults]);
+  const { rankedChunks, documentScores } = useContextScoring({
+    query,
+    searchResults,
+    smitheryResults,
+  });
 
   // Update generateChatResponse to include full agent logic
   const generateChatResponse = useCallback(
@@ -580,6 +453,38 @@ Keep your response focused and concise.`,
   // Update askAIQuestion to properly handle both agent and non-agent paths
   const askAIQuestion = useCallback(
     async (originalQuery: string) => {
+      if (currentSettings.modelType === 'openai' && !currentSettings.apiKey.trim()) {
+        setSearchSteps((prev) => {
+          const alreadyWarned = prev.some(
+            (step) => step.query === 'Add an OpenRouter API key in Settings to chat.'
+          );
+          if (alreadyWarned) {
+            return prev;
+          }
+
+          return [
+            ...prev,
+            {
+              id: uuidv4(),
+              query: 'Add an OpenRouter API key in Settings to chat.',
+              status: 'failed',
+            },
+          ];
+        });
+
+        setConversations((prev) => [
+          ...prev,
+          {
+            question: originalQuery,
+            answer:
+              'Add an OpenRouter API key in Settings to enable cloud responses, or switch to a private model.',
+            timestamp: Date.now(),
+            sources: [],
+          },
+        ]);
+        return;
+      }
+
       const baseModel = provider(currentSettings.model);
       const contextMiddleware = createContextMiddleware({
         getContext: () => combinedSearchContext,
@@ -697,7 +602,7 @@ Keep your response focused and concise.`,
           {
             id: uuidv4(),
             query: 'Error occurred during processing',
-            status: 'error',
+            status: 'failed',
           },
         ]);
       }
@@ -830,6 +735,33 @@ Keep your response focused and concise.`,
     [debouncedSearch]
   );
 
+  const refreshSmitheryServer = useCallback(
+    async (server: SmitheryMCPServer) => {
+      setSmitheryManualError(null);
+      try {
+        const refreshed = await createSmitheryServerFromInput(
+          server.manifestUrl ?? server.slug,
+          {
+            apiKey: smitheryApiKey || undefined,
+            existing: server,
+          }
+        );
+
+        setSmitheryServers((prev) =>
+          prev.map((entry) =>
+            entry.id === server.id ? { ...refreshed, enabled: entry.enabled } : entry
+          )
+        );
+      } catch (error) {
+        console.error('Failed to refresh Smithery connector from dashboard', error);
+        setSmitheryManualError((prev) =>
+          prev ?? 'Failed to refresh Smithery connector metadata.'
+        );
+      }
+    },
+    [setSmitheryServers, smitheryApiKey]
+  );
+
   // Add cleanup effect
   useEffect(() => {
     return (): void => {
@@ -939,13 +871,6 @@ Keep your response focused and concise.`,
     }
   }, [searchState]);
 
-  // Add new interfaces
-  interface StickyNote extends SearchResult {
-    id: string;
-    position: { x: number; y: number };
-    isDragging?: boolean;
-  }
-
   // Add clearChat function
   const clearChat = useCallback(() => {
     setConversations([]);
@@ -957,43 +882,67 @@ Keep your response focused and concise.`,
   }, []);
 
   // Add this new function to handle creating sticky notes
-  const createStickyNote = (
-    result: SearchResult | { text: string; metadata: any },
-    position: { x: number; y: number }
-  ): void => {
-    const newNote: StickyNote = {
-      ...result,
-      id: uuidv4(),
-      position,
-      isDragging: false,
-      dist:
-        'dist' in result
-          ? result.dist
-          : { corpus_id: 0, score: 1, text: result.text },
-    };
-    setStickyNotes((prev) => [...prev, newNote]);
+  const createStickyNote = useCallback(
+    (
+      result: SearchResult | { text: string; metadata: any },
+      position: { x: number; y: number }
+    ): void => {
+      const newNote: StickyNote = {
+        ...result,
+        id: uuidv4(),
+        position,
+        isDragging: false,
+        dist:
+          'dist' in result
+            ? result.dist
+            : { corpus_id: 0, score: 1, text: result.text },
+      };
+      setStickyNotes((prev) => [...prev, newNote]);
 
-    // Only remove from search results if it's a SearchResult
-    if ('dist' in result) {
-      setSearchResults((prev) =>
-        prev.filter((item) => item.metadata.path !== result.metadata.path)
-      );
-    }
-  };
+      // Only remove from search results if it's a SearchResult
+      if ('dist' in result) {
+        setSearchResults((prev) =>
+          prev.filter((item) => item.metadata.path !== result.metadata.path)
+        );
+      }
+    },
+    []
+  );
+
+  const spawnQuickNote = useCallback(() => {
+    createStickyNote(
+      {
+        text: '# New Note\n\nCapture your ideas…',
+        metadata: {
+          path: `note-${Date.now()}.md`,
+          created_at: Date.now() / 1000,
+          modified_at: Date.now() / 1000,
+          filetype: 'markdown',
+          languages: ['en'],
+          links: [],
+          owner: null,
+          seen_at: Date.now() / 1000,
+          sourceType: 'document',
+        },
+      },
+      {
+        x: window.innerWidth / 2 - 200,
+        y: window.innerHeight / 2 - 200,
+      }
+    );
+  }, [createStickyNote]);
 
   // Add drag handling functions using React DnD
 
   // Add to existing imports
-  const [showOnboarding, setShowOnboarding] = useState(() => {
-    const hasCompletedOnboarding = localStorage.getItem('onboarding-completed');
-    return !hasCompletedOnboarding;
-  });
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] =
+    usePersistentState<boolean>('onboarding-completed', false);
+  const showOnboarding = !hasCompletedOnboarding;
 
   // Add this function near other utility functions
-  const handleOnboardingComplete = () => {
-    localStorage.setItem('onboarding-completed', 'true');
-    setShowOnboarding(false);
-  };
+  const handleOnboardingComplete = useCallback(() => {
+    setHasCompletedOnboarding(true);
+  }, [setHasCompletedOnboarding]);
 
   // Update the filterOutStickyNotes function
   const filterOutStickyNotes = (results: SearchResult[]): SearchResult[] => {
@@ -1138,26 +1087,7 @@ Keep your response focused and concise.`,
       // Handle Cmd/Ctrl + N for new note
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
         e.preventDefault();
-        createStickyNote(
-          {
-            text: '# New Note\n\nStart typing here...',
-            metadata: {
-              path: `note-${Date.now()}.md`,
-              created_at: Date.now() / 1000,
-              modified_at: Date.now() / 1000,
-              filetype: 'markdown',
-              languages: ['en'],
-              links: [],
-              owner: null,
-              seen_at: Date.now() / 1000,
-              sourceType: 'document',
-            },
-          },
-          {
-            x: window.innerWidth / 2 - 200,
-            y: window.innerHeight / 2 - 200,
-          }
-        );
+        spawnQuickNote();
         return;
       }
     },
@@ -1175,7 +1105,7 @@ Keep your response focused and concise.`,
       useAgent,
       openAlBERTFolder,
       copyToClipboard,
-      createStickyNote,
+      spawnQuickNote,
       clearChat,
     ]
   );
@@ -1293,7 +1223,7 @@ Keep your response focused and concise.`,
         }}
         className="group"
       >
-        <Card className="w-96 shadow-lg bg-background/95 backdrop-blur-sm border-muted">
+        <Card className="glass-panel w-96 border-white/15 bg-slate-950/80 text-slate-100 shadow-[0_32px_120px_-70px_rgba(15,23,42,0.9)]">
           {/* Header */}
           <CardHeader className="p-3 pb-2">
             <div className="flex items-center justify-between">
@@ -1370,51 +1300,151 @@ Keep your response focused and concise.`,
     );
   };
 
+  const shouldShowResponsePanel =
+    conversations.length > 0 && activePanel === 'response';
+  const isSettingsActive = activePanel === 'settings';
+  const modeBadgeLabel = isPrivate ? 'Private workspace' : 'Open web mode';
+  const modeDescription = useAgent ? 'Agentic research' : 'Direct search';
+  const connectorSummary = useMemo(() => {
+    if (activeSmitheryServers.length === 0) {
+      return 'Link MCPs';
+    }
+
+    if (activeSmitheryServers.length === 1) {
+      return '1 MCP linked';
+    }
+
+    return `${activeSmitheryServers.length} MCPs linked`;
+  }, [activeSmitheryServers.length]);
+  const stats: Array<{ label: string; value: number; icon: React.ElementType }> = [
+    { label: 'Pinned notes', value: stickyNotes.length, icon: StickyNote },
+    { label: 'Results surfaced', value: searchResults.length + smitheryResults.length, icon: Library },
+    { label: 'Conversations', value: conversations.length, icon: Sparkles },
+    { label: 'MCP connectors', value: activeSmitheryServers.length, icon: RadioTower },
+  ];
+
   // Update the return statement to include Onboarding
   return (
     <DndProvider backend={HTML5Backend}>
-      <DropArea onDrop={(item, position) => {
-        if (item.type === 'searchResult') {
-          createStickyNote(item.result, position);
-        }
-      }}>
-        <div className="h-screen w-screen flex items-center justify-center">
-          {/* Add Onboarding at the top level */}
-          {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
+      <DropArea
+        onDrop={(item, position) => {
+          if (item.type === 'searchResult') {
+            createStickyNote(item.result, position);
+          }
+        }}
+        className="overflow-hidden text-slate-100"
+      >
+        <div className="glass-grid absolute inset-0 z-0 opacity-60" />
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <div className="animate-float-slow absolute -left-40 -top-48 h-[32rem] w-[32rem] rounded-full bg-gradient-to-br from-sky-500/30 via-cyan-400/20 to-transparent blur-[140px]" />
+          <div className="animate-float-medium absolute bottom-[-16rem] right-[-12rem] h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-fuchsia-500/25 via-indigo-400/20 to-transparent blur-[140px]" />
+        </div>
 
-          <div className="flex flex-col" data-highlight="search-container">
-            <div className="flex gap-4 transition-all duration-200">
-              {/* Settings Panel */}
-              {activePanel === 'settings' && (
-                <Suspense fallback={<div>Loading Settings...</div>}>
-                  <Card
-                    className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
-                    style={{ width: 600 }}
-                  >
-                    <CardContent className="p-4 flex flex-col h-[600px]">
-                      <SettingsPanel
-                        isPrivate={isPrivate}
-                        setIsPrivate={setIsPrivate}
-                        privateSettings={privateSettings}
-                        publicSettings={publicSettings}
-                        setPrivateSettings={setPrivateSettings}
-                        setPublicSettings={setPublicSettings}
-                        setActivePanel={setActivePanel}
-                      />
-                    </CardContent>
-                  </Card>
-                </Suspense>
+        {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
+
+        <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:px-12">
+          <header className="glass-panel overflow-hidden rounded-[40px] border border-white/10 px-8 py-10 shadow-[0_40px_140px_-80px_rgba(37,99,235,0.45)]">
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-5">
+                <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.35em] text-slate-300/70">
+                  <Sparkles className="h-3.5 w-3.5 text-sky-200" />
+                  Liquid glass workspace
+                </span>
+                <h1 className="text-3xl font-semibold text-white md:text-4xl">
+                  Research, curate, and brief with clarity.
+                </h1>
+                <p className="max-w-2xl text-sm text-slate-300/80">
+                  Blend semantic search, contextual chat, and floating notes in a translucent environment inspired by the newest macOS and iOS design language.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge className="rounded-full border border-white/25 bg-white/10 px-4 py-1 text-[11px] uppercase tracking-[0.22em] text-slate-100/85">
+                    {modeBadgeLabel}
+                  </Badge>
+                  <Badge className="rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-[11px] uppercase tracking-[0.28em] text-slate-100/85">
+                    {modeDescription}
+                  </Badge>
+                  <Badge className="flex items-center gap-2 rounded-full border border-white/15 bg-sky-400/15 px-4 py-1.5 text-[11px] uppercase tracking-[0.28em] text-sky-100">
+                    <RadioTower className="h-3.5 w-3.5" />
+                    {activeSmitheryServers.length > 0
+                      ? `${activeSmitheryServers.length} MCP${
+                          activeSmitheryServers.length > 1 ? 's' : ''
+                        }`
+                      : 'Link MCPs'}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button
+                  variant="ghost"
+                  onClick={spawnQuickNote}
+                  className="h-auto rounded-2xl border border-white/25 bg-white/10 px-5 py-4 text-sm font-semibold text-white shadow-[0_24px_80px_-60px_rgba(59,130,246,0.55)] transition hover:border-white/40 hover:bg-white/20"
+                >
+                  <StickyNote className="h-4 w-4" />
+                  Capture note
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={toggleSettingsPanel}
+                  className="h-auto rounded-2xl border border-white/20 bg-white/5 px-5 py-4 text-sm font-medium text-slate-100/85 transition hover:border-white/35 hover:bg-white/12"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  {isSettingsActive ? 'Hide settings' : 'Workspace settings'}
+                </Button>
+              </div>
+            </div>
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {stats.map(({ label, value, icon: Icon }) => (
+                <div
+                  key={label}
+                  className="flex flex-col gap-3 rounded-[26px] border border-white/12 bg-white/8 px-5 py-4 backdrop-blur-2xl"
+                >
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-slate-300/75">
+                    <Icon className="h-4 w-4 text-sky-200" />
+                    {label}
+                  </div>
+                  <span className="text-2xl font-semibold text-white">{value}</span>
+                </div>
+              ))}
+            </div>
+          </header>
+
+          <div
+            className="flex flex-col gap-6 transition-all duration-300 xl:flex-row xl:items-start xl:justify-center"
+            data-highlight="search-container"
+          >
+            {isSettingsActive && (
+              <Suspense fallback={<div>Loading Settings...</div>}>
+                <Card className={cn(PANEL_BASE_CLASS, 'w-full max-w-xl')}>
+                  <CardContent className="flex h-[600px] flex-col p-6">
+                    <SettingsPanel
+                      isPrivate={isPrivate}
+                      setIsPrivate={setIsPrivate}
+                      privateSettings={privateSettings}
+                      publicSettings={publicSettings}
+                      setPrivateSettings={setPrivateSettings}
+                      setPublicSettings={setPublicSettings}
+                      setActivePanel={setActivePanel}
+                      smitheryApiKey={smitheryApiKey}
+                      setSmitheryApiKey={setSmitheryApiKey}
+                      smitheryServers={smitheryServers}
+                      setSmitheryServers={setSmitheryServers}
+                    />
+                  </CardContent>
+                </Card>
+              </Suspense>
+            )}
+
+            <Card
+              className={cn(
+                PANEL_BASE_CLASS,
+                'w-full max-w-2xl transition-all duration-300',
+                shouldShowResponsePanel ? 'xl:max-w-2xl' : 'xl:max-w-4xl'
               )}
-
-              {/* Main Search Card */}
-              <Card
-                className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
-                style={{ width: 600 }}
-                data-highlight="search-container"
-              >
+              data-highlight="search-container"
+            >
                 <CardContent
                   className={cn(
-                    'p-0 flex flex-col',
+                    'flex flex-col p-0',
                     showResults && searchResults.length > 0 ? 'h-[600px]' : 'h-auto'
                   )}
                 >
@@ -1424,27 +1454,29 @@ Keep your response focused and concise.`,
                       showResults && searchResults.length > 0 ? 'h-full' : 'h-auto'
                     )}
                   >
-                    {/* Search Bar Section */}
                     {searchSteps.length > 0 && (
-                      <div className="px-4 pt-4">
+                      <div className="px-6 pt-6">
                         <SearchBadges steps={searchSteps} />
                       </div>
                     )}
-                    <SearchBar
-                      ref={searchBarRef}
-                      query={query}
-                      setQuery={setQuery}
-                      isLoading={isLoading}
-                      useAgent={useAgent}
-                      handleAgentToggle={(checked) => {
-                        setUseAgent(checked);
-                        localStorage.setItem('use-agent', JSON.stringify(checked));
-                      }}
-                      handleInputChange={handleInputChange}
-                      data-highlight="search-input"
-                    />
+                    <div className="px-6 pb-6">
+                      <SearchBar
+                        ref={searchBarRef}
+                        query={query}
+                        setQuery={setQuery}
+                        isLoading={isLoading}
+                        useAgent={useAgent}
+                        handleAgentToggle={setUseAgent}
+                        handleInputChange={handleInputChange}
+                        onOpenSettings={toggleSettingsPanel}
+                        isSettingsActive={isSettingsActive}
+                        connectorSummary={connectorSummary}
+                        connectorCount={activeSmitheryServers.length}
+                        connectorSyncing={isSmitheryLoading}
+                        data-highlight="search-input"
+                      />
+                    </div>
 
-                    {/* Results Section */}
                     {showResults && (
                       <SearchResults
                         searchResults={searchResults}
@@ -1454,19 +1486,29 @@ Keep your response focused and concise.`,
                         data-highlight="search-results"
                       />
                     )}
+                    {(smitheryServers.length > 0 || query.trim().length > 0) && (
+                      <div className="px-6 pb-6">
+                        <SmitheryContextResults
+                          items={smitheryResults}
+                          servers={smitheryServers}
+                          isLoading={isSmitheryLoading}
+                          error={smitheryError}
+                          onOpenSettings={toggleSettingsPanel}
+                          onRefreshServer={refreshSmitheryServer}
+                        />
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* AI Response Panel */}
-              {conversations.length > 0 && activePanel === 'response' && (
+            {shouldShowResponsePanel && (
                 <Suspense fallback={<div>Loading Response Panel...</div>}>
                   <Card
-                    className="bg-background/95 shadow-2xl flex flex-col transition-all duration-200 rounded-xl overflow-hidden"
-                    style={{ width: 600 }}
+                    className={cn(PANEL_BASE_CLASS, 'w-full max-w-2xl')}
                     data-highlight="response-panel"
                   >
-                    <CardContent className="p-4 flex flex-col h-[600px]">
+                    <CardContent className="flex h-[600px] flex-col p-6">
                       <ResponsePanel
                         conversations={conversations}
                         addAIResponseToContext={() => {}}
@@ -1483,60 +1525,57 @@ Keep your response focused and concise.`,
                   </Card>
                 </Suspense>
               )}
-            </div>
-
-            <KeyboardShortcuts
-              showDocument={activePanel === 'document'}
-              activePanel={activePanel}
-              data-highlight="keyboard-shortcuts"
-            />
           </div>
 
-          {/* Sticky Notes Layer */}
-          <AnimatePresence>
-            {stickyNotes.map((note) => (
-              <StickyNoteComponent
-                key={note.id}
-                note={note}
-                onClose={(id) => {
-                  setStickyNotes((prev) => prev.filter((n) => n.id !== id));
-                }}
-                onDrag={(id, position) => {
-                  // Direct update without requestAnimationFrame
-                  setStickyNotes((prev) =>
-                    prev.map((n) =>
-                      n.id === id
-                        ? {
-                            ...n,
-                            position: {
-                              x: Math.max(0, Math.min(window.innerWidth - 384, position.x)),
-                              y: Math.max(0, Math.min(window.innerHeight - 400, position.y)),
-                            },
-                          }
-                        : n
-                    )
-                  );
-                }}
-                onEdit={(id, newText) => {
-                  setStickyNotes((prev) =>
-                    prev.map((n) =>
-                      n.id === id
-                        ? {
-                            ...n,
-                            text: newText,
-                            metadata: {
-                              ...n.metadata,
-                              modified_at: Date.now() / 1000,
-                            },
-                          }
-                        : n
-                    )
-                  );
-                }}
-              />
-            ))}
-          </AnimatePresence>
+          <KeyboardShortcuts
+            showDocument={activePanel === 'document'}
+            activePanel={activePanel}
+            data-highlight="keyboard-shortcuts"
+          />
         </div>
+
+        <AnimatePresence>
+          {stickyNotes.map((note) => (
+            <StickyNoteComponent
+              key={note.id}
+              note={note}
+              onClose={(id) => {
+                setStickyNotes((prev) => prev.filter((n) => n.id !== id));
+              }}
+              onDrag={(id, position) => {
+                setStickyNotes((prev) =>
+                  prev.map((n) =>
+                    n.id === id
+                      ? {
+                          ...n,
+                          position: {
+                            x: Math.max(0, Math.min(window.innerWidth - 384, position.x)),
+                            y: Math.max(0, Math.min(window.innerHeight - 400, position.y)),
+                          },
+                        }
+                      : n
+                  )
+                );
+              }}
+              onEdit={(id, newText) => {
+                setStickyNotes((prev) =>
+                  prev.map((n) =>
+                    n.id === id
+                      ? {
+                          ...n,
+                          text: newText,
+                          metadata: {
+                            ...n.metadata,
+                            modified_at: Date.now() / 1000,
+                          },
+                        }
+                      : n
+                  )
+                );
+              }}
+            />
+          ))}
+        </AnimatePresence>
       </DropArea>
     </DndProvider>
   );

@@ -8,6 +8,7 @@ import path from 'node:path'
 import { readContent } from './utils/reader'
 import { embed, rerank } from './embeddings'
 import { SearchResult, CommonSearchResult } from './types'
+import { config } from './config'
 
 interface CacheEntry {
   timestamp: number;
@@ -26,11 +27,15 @@ const t = initTRPC.create({
   isServer: true
 })
 
-const braveSearch = new BraveSearch(process.env.BRAVE_API_KEY || '')
+const braveSearch = new BraveSearch(config.braveApiKey ?? '')
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || ''
+const OPENROUTER_API_KEY = config.openRouterApiKey ?? ''
 
 async function getPerplexityAnswer(searchTerm: string): Promise<SearchResult | null> {
+  if (!config.hasOpenRouterApiKey) {
+    log.warn('Skipping OpenRouter request because OPENROUTER_API_KEY is not configured')
+    return null
+  }
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -324,6 +329,10 @@ async function searchFiles(searchTerm: string): Promise<SearchResult[]> {
 
 // Update the quickSearchWeb function to handle timeouts and failures
 async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
+  if (!config.hasBraveApiKey) {
+    log.warn('Skipping Brave web search because BRAVE_API_KEY is not configured')
+    return []
+  }
   try {
     // Create a promise that rejects after 1 second
     const timeoutPromise = new Promise((_, reject) => {

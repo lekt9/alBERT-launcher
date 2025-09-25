@@ -7,6 +7,8 @@ import ReactMarkdown from 'react-markdown'
 import { useDrag } from 'react-dnd'
 import { Input } from '@/components/ui/input'
 import { trpcClient } from '../util/trpc-client'
+import type { SearchResult } from '../types/search'
+import type { AIResponse } from '../types'
 
 interface ResponsePanelProps {
   conversations: AIResponse[]
@@ -27,22 +29,6 @@ interface ResponsePanelProps {
   setSearchResults: React.Dispatch<React.SetStateAction<SearchResult[]>>
   setShowResults: React.Dispatch<React.SetStateAction<boolean>>
   filterOutStickyNotes: (results: SearchResult[]) => SearchResult[]
-}
-
-interface AIResponse {
-  question: string
-  answer: string
-  timestamp: number
-  sources?: Array<{
-    path: string
-    preview?: string
-    citations?: string[]
-  }>
-  commit?: {
-    hash: string
-    message: string
-    diff: string
-  }
 }
 
 const handlePathClick = async (path: string, e: React.MouseEvent): Promise<void> => {

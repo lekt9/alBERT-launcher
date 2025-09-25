@@ -89,6 +89,34 @@ graph LR
     end
 ```
 
+#### Main process lifecycle
+
+The Electron main process is now organised into small lifecycle utilities so contributors can refactor or extend behaviour without digging through a monolithic `index.ts` file:
+
+| Concern | Module | Responsibilities |
+| --- | --- | --- |
+| Window orchestration | `src/main/lifecycle/window-manager.ts` | Builds the translucent shell window, wires blur/close hooks, and loads the correct renderer URL depending on environment. |
+| IPC routing | `src/main/lifecycle/ipc.ts` | Registers the tRPC bridge against the active window so renderer modules can call into the main process. |
+| Tray & shortcuts | `src/main/lifecycle/tray.ts`, `src/main/lifecycle/shortcuts.ts` | Sets up the status bar tray menu and keyboard toggle with graceful teardown on quit. |
+| Search database lifecycle | `src/main/lifecycle/search-service.ts` | Lazily initialises the embedded vector index, streams progress updates to the renderer, and persists/shuts down cleanly. |
+
+These modules keep the bootstrap logic declarative inside `src/main/index.ts` while still exposing focused hooks for new background services or observability.
+
+#### Renderer state toolkit
+
+To keep the liquid-glass UI responsive, the renderer has been decomposed into focused utilities instead of one monolithic `App.tsx`:
+
+| Concern | Module | Responsibilities |
+| --- | --- | --- |
+| Smithery connectors | `src/renderer/src/hooks/useSmitheryContext.ts` | Debounced MCP fetching with cancellation, error surfacing, and manual refresh support. |
+| Context scoring | `src/renderer/src/hooks/useContextScoring.ts` | Reranks merged local/MCP documents and tracks cosine similarity maps without blocking the UI thread. |
+| Prompt assembly | `src/renderer/src/lib/context-builder.ts` | Normalises sticky notes, Smithery snippets, and search results into a bounded context string for the LLM middleware. |
+| Shared search types | `src/renderer/src/types/search.ts` | Source of truth for search result, cache, and sticky note shapes reused across components. |
+
+These modules let feature components subscribe to just the slices of data they need, improving readability while reducing redundant network requests and state churn.
+
+> **Secrets stay local.** Configuration lives in `.env` (ignored by git) with safe defaults documented in `.env.example`; never commit API keys to the repo.
+
 ### Search Flow
 
 ```mermaid
@@ -122,7 +150,31 @@ sequenceDiagram
 - ⌨️ Global keyboard shortcuts (`Option (⌥) + Space`)
 - 💾 Smart caching system
 - 🎯 Context-aware search results
+- 🫧 Liquid glass interface inspired by macOS Sonoma
 - 📱 Modern, responsive UI
+
+### Liquid Glass Interface
+
+The renderer has been refreshed to echo Apple's latest "liquid glass" design language:
+
+- Layered frosted panels with animated gradient orbs and a soft grid backdrop keep the workspace calm yet dynamic.
+- A sculpted header surfaces key stats (pinned notes, surfaced results, conversations) so you can gauge context at a glance.
+- Search, chat, and notes live inside glass panels with softened borders, luminous highlights, and adaptive blur so focus stays on your content.
+- Sticky notes inherit the same frosted aesthetic and can be spawned instantly from the header or via <kbd>⌘/Ctrl</kbd> + <kbd>N</kbd>.
+
+To tweak the visuals, inspect `src/renderer/src/assets/index.css` for theme tokens and glass utilities, and adjust the panel layout inside `src/renderer/src/App.tsx`.
+
+### Smithery MCP connectors
+
+alBERT now speaks the [Model Context Protocol (MCP)](https://smithery.ai/mcp) so you can stream structured knowledge packs straight from [Smithery](https://smithery.ai) into every search and chat turn.
+
+1. **Open Settings → Smithery MCP** and (optionally) drop in your Smithery API key if you need private connectors.
+2. Paste a Smithery slug (for example `notion-notes`) or a manifest URL to link a connector. You can also pick from the built-in directory and click **Link connector**.
+3. Toggle connectors on/off, refresh their metadata, or remove them entirely without editing config files.
+
+Once linked, context cards from each connector show up beneath search results. The retrieved snippets are automatically blended into the conversation context so the assistant can cite them alongside your local documents. Everything is stored in local preferences—no Smithery secrets are shipped with the repo.
+
+For deeper integrations—hosting your own MCP servers, enabling OAuth, or wiring Smithery connectors into other runtimes—see [`docs/smithery-mcp.md`](docs/smithery-mcp.md) for a protocol primer and official SDK references.
 
 ## Core Concepts
 
@@ -148,6 +200,8 @@ alBERT uses advanced embedding techniques to understand the meaning of your docu
 ### OpenRouter Integration
 
 alBERT-launcher uses OpenRouter to access powerful language models for enhanced search capabilities:
+
+> **Note:** The app does not include an OpenRouter API key. Provide your own key via the in-app **Settings → Public AI** section or by setting `OPENROUTER_API_KEY` in `.env` before enabling cloud responses.
 
 ```mermaid
 graph TD
@@ -477,6 +531,24 @@ graph TD
    }
    ```
 
+## Open Source Readiness
+
+This repository is set up for collaborative development:
+
+- Environment variables are documented in `.env.example`. Provide your own API keys during local development; none are committed to source control.
+- The renderer and main process read configuration through the validated helpers in `src/main/config.ts`, ensuring secrets never live in the UI bundle.
+- Prefer `npm` for dependency management (`package-lock.json` is authoritative). After cloning, run:
+
+  ```bash
+  npm install
+  npm run dev
+  npm run lint
+  npm run typecheck
+  ```
+
+- Secret scanning is encouraged for contributors (e.g., `git secrets --scan`) before submitting pull requests.
+- UI components follow the frosted-glass design tokens declared in `src/renderer/src/assets/index.css`—please align new work with these utilities for consistency.
+
 3. **Quality Assurance**
    - Automated consistency checks
    - Vector space analysis
@@ -510,38 +582,45 @@ sequenceDiagram
 
 ## Prerequisites
 
-- Node.js (v16 or higher)
-- pnpm package manager
+- Node.js (v18 or higher recommended)
+- npm 9+ (ships with Node.js and matches the repository lockfile)
 - Brave Search API key (optional)
 - OpenRouter API key (optional)
 
 ## Development
 
 ```bash
+# Install dependencies
+npm install
+
 # Start the development server
-pnpm dev
+npm run dev
 ```
 
 ## Building for Production
 
 ```bash
 # For macOS
-pnpm build:mac
+npm run build:mac
 
 # For Windows
-pnpm build:win
+npm run build:win
 
 # For Linux
-pnpm build:linux
+npm run build:linux
 ```
 
 ## Configuration
 
-Create a `.env` file in the root directory with the following variables:
-```env
-BRAVE_API_KEY=your_brave_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
+Copy `.env.example` to `.env` in the project root and populate any API keys you intend to use:
+
+```bash
+cp .env.example .env
 ```
+
+The application validates its environment variables at startup and will surface an error if required
+values are malformed. Both `BRAVE_API_KEY` and `OPENROUTER_API_KEY` are optional—features that depend on
+them will simply be skipped when the keys are not provided.
 
 ## Project Structure
 

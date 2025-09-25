@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
-import type { SearchResult } from '../App'
+import type { SearchResult } from '../types/search'
 import { cn } from '@/lib/utils'
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react'
 
