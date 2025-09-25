@@ -7,23 +7,8 @@ import { cn } from '@/lib/utils';
 import { trpcClient } from '../util/trpc-client';
 import { RankedChunk } from '@/lib/context-utils';
 import { useDrag } from 'react-dnd';
-
-interface SearchResult {
-  text: string;
-  dist: number;
-  metadata: {
-    path: string;
-    title?: string;
-    created_at: number;
-    modified_at: number;
-    filetype: string;
-    languages: string[];
-    links: string[];
-    owner: string | null;
-    seen_at: number;
-    sourceType?: 'document' | 'web';
-  };
-}
+import { Badge } from '@/components/ui/badge';
+import type { SearchResult } from '../types/search';
 
 interface SearchResultsProps {
   searchResults: SearchResult[];
@@ -101,71 +86,88 @@ const SearchResultItem: React.FC<{
 
   const truncatedContent = truncateText(chunk.combinedText, 500);
 
+  const selectionClasses =
+    index === selectedIndex
+      ? 'ring-1 ring-sky-300/70 shadow-[0_40px_120px_-60px_rgba(125,211,252,0.55)]'
+      : 'shadow-[0_24px_80px_-70px_rgba(15,23,42,0.85)]';
+
+  const variantLabel = isWebSource ? 'Web source' : 'Local file';
+  const formattedScore = Math.max(0, chunk.score || 0).toFixed(2);
+
   return (
     <div
       ref={drag}
-      style={{ opacity: isDragging ? 0.5 : 1 }}
+      style={{ opacity: isDragging ? 0.35 : 1 }}
       className={cn(
-        'card-item m-2',
+        'card-item m-2 transition-transform duration-300 ease-out hover:-translate-y-1.5',
         index === selectedIndex ? 'z-10' : 'z-0'
       )}
     >
       <Card
         className={cn(
-          'hover:bg-accent/50 transition-all duration-200 rounded-xl overflow-hidden backdrop-blur-sm',
-          index === selectedIndex
-            ? 'bg-accent/95 border-primary'
-            : 'bg-background/95'
+          'glass-panel group relative overflow-hidden rounded-[26px] border border-white/10 bg-slate-950/65 backdrop-blur-2xl',
+          selectionClasses
         )}
         onClick={() => handleResultClick(result)}
       >
-        <CardContent className="p-3 flex items-start space-x-3">
-          <div className="flex gap-2">
-            <div className="bg-muted rounded-full p-2 mt-1">
-              {isWebSource ? (
-                <Globe className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <FileText className="h-4 w-4 text-muted-foreground" />
-              )}
-            </div>
+        <div className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100" style={{ background: 'linear-gradient(135deg, rgba(56,189,248,0.12), rgba(236,72,153,0.08))' }} />
+        <CardContent className="relative flex items-start gap-4 p-5">
+          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-sky-200">
+            {isWebSource ? (
+              <Globe className="h-5 w-5" />
+            ) : (
+              <FileText className="h-5 w-5" />
+            )}
           </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <span
-                onClick={(e) => handlePathClick(result.metadata.path, e)}
-                className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1"
-                title={result.metadata.path}
+          <div className="flex-1 space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-100">
+                <button
+                  type="button"
+                  onClick={(e) => handlePathClick(result.metadata.path, e)}
+                  className="group/button inline-flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-left text-sm font-semibold text-white transition hover:bg-white/10"
+                  title={result.metadata.path}
+                >
+                  {displayName}
+                  {isWebSource ? (
+                    <ExternalLink className="h-3 w-3 text-slate-200" />
+                  ) : (
+                    <FileText className="h-3 w-3 text-slate-200" />
+                  )}
+                </button>
+                <Badge className="rounded-full border-white/10 bg-white/10 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-200/90">
+                  {variantLabel}
+                </Badge>
+              </div>
+              <Badge
+                variant="secondary"
+                className="rounded-full border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold text-slate-100"
               >
-                {displayName}
-                {isWebSource ? (
-                  <ExternalLink className="h-3 w-3" />
-                ) : (
-                  <FileText className="h-3 w-3" />
-                )}
-              </span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {isWebSource ? 'Web' : 'Document'}
-              </span>
-            </h3>
+                Relevance {formattedScore}
+              </Badge>
+            </div>
+
             {isWebSource && (
               <div
-                className="text-xs text-muted-foreground mt-1 hover:text-primary cursor-pointer transition-colors"
+                className="inline-flex max-w-full items-center gap-2 truncate text-xs text-slate-300/80"
                 onClick={(e) => handlePathClick(result.metadata.path, e)}
                 title={result.metadata.path}
               >
-                {truncateText(result.metadata.path, 100)}
+                <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{truncateText(result.metadata.path, 100)}</span>
               </div>
             )}
-            <div className="text-xs text-muted-foreground mt-1 prose prose-sm max-w-none">
+
+            <div className="prose prose-invert prose-sm max-w-none text-slate-200/90">
               <ReactMarkdown>{truncatedContent}</ReactMarkdown>
             </div>
-            <div className="flex items-center mt-2 space-x-2">
-              <span className="text-xs text-muted-foreground">
-                Modified:{' '}
-                {new Date(
-                  result.metadata.modified_at * 1000
-                ).toLocaleDateString()}
+
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300/70">
+              <span>
+                Modified{' '}
+                {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
               </span>
+              <span>Drag to pin as a floating note</span>
             </div>
           </div>
         </CardContent>
@@ -216,12 +218,12 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
     return (
       <div
         className={cn(
-          'flex-1 overflow-hidden rounded-b-xl',
-          searchResults.length === 0 ? 'h-0' : ''
+          'flex-1 overflow-hidden rounded-b-[28px] border border-white/10 bg-white/5 backdrop-blur-xl',
+          searchResults.length === 0 ? 'h-0 border-0 bg-transparent' : ''
         )}
       >
         <ScrollArea
-          className={cn('h-full', searchResults.length === 0 ? 'p-0' : '')}
+          className={cn('h-full px-2 py-3', searchResults.length === 0 ? 'p-0' : '')}
         >
           {groupedChunks.map((chunk, index) => {
             const result = searchResults.find(
@@ -242,11 +244,13 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
           })}
         </ScrollArea>
         {searchResults.length > 0 && (
-          <div className="flex items-center justify-between mt-2 px-4 pb-2 text-xs text-muted-foreground bg-background/95 backdrop-blur-sm rounded-b-xl">
+          <div className="glass-panel mx-3 mb-3 flex items-center justify-between rounded-[24px] border border-white/10 bg-slate-950/60 px-4 py-3 text-[11px] text-slate-200/80">
             <span>
-              {selectedIndex === -1 ? 'Press → to pin to context' : 'Press ↑ to select'}
+              {selectedIndex === -1
+                ? 'Press → to pin highlighted context'
+                : 'Use ↑ / ↓ to explore results'}
             </span>
-            <span>Drag items to create sticky notes</span>
+            <span className="hidden sm:inline">Drag cards to create floating notes</span>
           </div>
         )}
       </div>
