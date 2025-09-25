@@ -8,8 +8,6 @@ import React, {
   useReducer,
 } from 'react';
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { trpcClient } from './util/trpc-client';
 import { cn, debounce } from '@/lib/utils';
 import SearchBar from '@/components/SearchBar';
@@ -43,10 +41,8 @@ const ResponsePanel = React.lazy(() => import('@/components/ResponsePanel'));
 import SearchBadges, { SearchStep } from '@/components/SearchBadges';
 import { v4 as uuidv4 } from 'uuid';
 import { AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
-import { Globe, FileText, X, Sparkles, StickyNote, Library, Settings2, RadioTower } from 'lucide-react';
+import { Globe, FileText, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Textarea } from '@/components/ui/textarea';
 import {
   MDXEditor,
   headingsPlugin,
@@ -61,7 +57,6 @@ import {
   imagePlugin,
 } from '@mdxeditor/editor';
 import '@mdxeditor/editor/style.css';
-import { Onboarding } from '@/components/Onboarding';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
@@ -153,7 +148,7 @@ const DropArea: React.FC<{
 };
 
 const PANEL_BASE_CLASS =
-  'glass-panel relative flex w-full flex-col overflow-hidden rounded-[32px] border border-white/10 shadow-[0_40px_140px_-70px_rgba(15,23,42,0.85)] transition-all duration-300 hover:border-white/20';
+  'relative flex w-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.9)] transition-colors duration-200 hover:border-slate-700 focus-within:border-slate-600';
 
 function App(): JSX.Element {
   // State Definitions
@@ -935,15 +930,6 @@ Keep your response focused and concise.`,
   // Add drag handling functions using React DnD
 
   // Add to existing imports
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] =
-    usePersistentState<boolean>('onboarding-completed', false);
-  const showOnboarding = !hasCompletedOnboarding;
-
-  // Add this function near other utility functions
-  const handleOnboardingComplete = useCallback(() => {
-    setHasCompletedOnboarding(true);
-  }, [setHasCompletedOnboarding]);
-
   // Update the filterOutStickyNotes function
   const filterOutStickyNotes = (results: SearchResult[]): SearchResult[] => {
     const stickyNotePaths = new Set(stickyNotes.map((note) => note.metadata.path));
@@ -1223,7 +1209,7 @@ Keep your response focused and concise.`,
         }}
         className="group"
       >
-        <Card className="glass-panel w-96 border-white/15 bg-slate-950/80 text-slate-100 shadow-[0_32px_120px_-70px_rgba(15,23,42,0.9)]">
+        <Card className="w-96 rounded-2xl border border-slate-800 bg-slate-950/95 text-slate-100 shadow-lg">
           {/* Header */}
           <CardHeader className="p-3 pb-2">
             <div className="flex items-center justify-between">
@@ -1303,8 +1289,6 @@ Keep your response focused and concise.`,
   const shouldShowResponsePanel =
     conversations.length > 0 && activePanel === 'response';
   const isSettingsActive = activePanel === 'settings';
-  const modeBadgeLabel = isPrivate ? 'Private workspace' : 'Open web mode';
-  const modeDescription = useAgent ? 'Agentic research' : 'Direct search';
   const connectorSummary = useMemo(() => {
     if (activeSmitheryServers.length === 0) {
       return 'Link MCPs';
@@ -1316,14 +1300,7 @@ Keep your response focused and concise.`,
 
     return `${activeSmitheryServers.length} MCPs linked`;
   }, [activeSmitheryServers.length]);
-  const stats: Array<{ label: string; value: number; icon: React.ElementType }> = [
-    { label: 'Pinned notes', value: stickyNotes.length, icon: StickyNote },
-    { label: 'Results surfaced', value: searchResults.length + smitheryResults.length, icon: Library },
-    { label: 'Conversations', value: conversations.length, icon: Sparkles },
-    { label: 'MCP connectors', value: activeSmitheryServers.length, icon: RadioTower },
-  ];
 
-  // Update the return statement to include Onboarding
   return (
     <DndProvider backend={HTML5Backend}>
       <DropArea
@@ -1334,114 +1311,42 @@ Keep your response focused and concise.`,
         }}
         className="overflow-hidden text-slate-100"
       >
-        <div className="glass-grid absolute inset-0 z-0 opacity-60" />
-        <div className="pointer-events-none absolute inset-0 z-0">
-          <div className="animate-float-slow absolute -left-40 -top-48 h-[32rem] w-[32rem] rounded-full bg-gradient-to-br from-sky-500/30 via-cyan-400/20 to-transparent blur-[140px]" />
-          <div className="animate-float-medium absolute bottom-[-16rem] right-[-12rem] h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-fuchsia-500/25 via-indigo-400/20 to-transparent blur-[140px]" />
-        </div>
-
-        {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
-
-        <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:px-12">
-          <header className="glass-panel overflow-hidden rounded-[40px] border border-white/10 px-8 py-10 shadow-[0_40px_140px_-80px_rgba(37,99,235,0.45)]">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-5">
-                <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.35em] text-slate-300/70">
-                  <Sparkles className="h-3.5 w-3.5 text-sky-200" />
-                  Liquid glass workspace
-                </span>
-                <h1 className="text-3xl font-semibold text-white md:text-4xl">
-                  Research, curate, and brief with clarity.
-                </h1>
-                <p className="max-w-2xl text-sm text-slate-300/80">
-                  Blend semantic search, contextual chat, and floating notes in a translucent environment inspired by the newest macOS and iOS design language.
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge className="rounded-full border border-white/25 bg-white/10 px-4 py-1 text-[11px] uppercase tracking-[0.22em] text-slate-100/85">
-                    {modeBadgeLabel}
-                  </Badge>
-                  <Badge className="rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-[11px] uppercase tracking-[0.28em] text-slate-100/85">
-                    {modeDescription}
-                  </Badge>
-                  <Badge className="flex items-center gap-2 rounded-full border border-white/15 bg-sky-400/15 px-4 py-1.5 text-[11px] uppercase tracking-[0.28em] text-sky-100">
-                    <RadioTower className="h-3.5 w-3.5" />
-                    {activeSmitheryServers.length > 0
-                      ? `${activeSmitheryServers.length} MCP${
-                          activeSmitheryServers.length > 1 ? 's' : ''
-                        }`
-                      : 'Link MCPs'}
-                  </Badge>
-                </div>
-              </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button
-                  variant="ghost"
-                  onClick={spawnQuickNote}
-                  className="h-auto rounded-2xl border border-white/25 bg-white/10 px-5 py-4 text-sm font-semibold text-white shadow-[0_24px_80px_-60px_rgba(59,130,246,0.55)] transition hover:border-white/40 hover:bg-white/20"
-                >
-                  <StickyNote className="h-4 w-4" />
-                  Capture note
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={toggleSettingsPanel}
-                  className="h-auto rounded-2xl border border-white/20 bg-white/5 px-5 py-4 text-sm font-medium text-slate-100/85 transition hover:border-white/35 hover:bg-white/12"
-                >
-                  <Settings2 className="h-4 w-4" />
-                  {isSettingsActive ? 'Hide settings' : 'Workspace settings'}
-                </Button>
-              </div>
-            </div>
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {stats.map(({ label, value, icon: Icon }) => (
-                <div
-                  key={label}
-                  className="flex flex-col gap-3 rounded-[26px] border border-white/12 bg-white/8 px-5 py-4 backdrop-blur-2xl"
-                >
-                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-slate-300/75">
-                    <Icon className="h-4 w-4 text-sky-200" />
-                    {label}
-                  </div>
-                  <span className="text-2xl font-semibold text-white">{value}</span>
-                </div>
-              ))}
-            </div>
-          </header>
-
-          <div
-            className="flex flex-col gap-6 transition-all duration-300 xl:flex-row xl:items-start xl:justify-center"
-            data-highlight="search-container"
-          >
-            {isSettingsActive && (
-              <Suspense fallback={<div>Loading Settings...</div>}>
-                <Card className={cn(PANEL_BASE_CLASS, 'w-full max-w-xl')}>
-                  <CardContent className="flex h-[600px] flex-col p-6">
-                    <SettingsPanel
-                      isPrivate={isPrivate}
-                      setIsPrivate={setIsPrivate}
-                      privateSettings={privateSettings}
-                      publicSettings={publicSettings}
-                      setPrivateSettings={setPrivateSettings}
-                      setPublicSettings={setPublicSettings}
-                      setActivePanel={setActivePanel}
-                      smitheryApiKey={smitheryApiKey}
-                      setSmitheryApiKey={setSmitheryApiKey}
-                      smitheryServers={smitheryServers}
-                      setSmitheryServers={setSmitheryServers}
-                    />
-                  </CardContent>
-                </Card>
-              </Suspense>
-            )}
-
-            <Card
-              className={cn(
-                PANEL_BASE_CLASS,
-                'w-full max-w-2xl transition-all duration-300',
-                shouldShowResponsePanel ? 'xl:max-w-2xl' : 'xl:max-w-4xl'
-              )}
+        <div className="relative z-10 flex min-h-screen w-full items-center justify-center px-4 py-10 lg:px-8">
+          <div className="flex w-full max-w-5xl flex-col gap-6">
+            <div
+              className="flex flex-col gap-6 transition-all duration-300 xl:flex-row xl:items-start xl:justify-center"
               data-highlight="search-container"
             >
+              {isSettingsActive && (
+                <Suspense fallback={<div>Loading Settings...</div>}>
+                  <Card className={cn(PANEL_BASE_CLASS, 'w-full max-w-xl')}>
+                    <CardContent className="flex h-[600px] flex-col p-6">
+                      <SettingsPanel
+                        isPrivate={isPrivate}
+                        setIsPrivate={setIsPrivate}
+                        privateSettings={privateSettings}
+                        publicSettings={publicSettings}
+                        setPrivateSettings={setPrivateSettings}
+                        setPublicSettings={setPublicSettings}
+                        setActivePanel={setActivePanel}
+                        smitheryApiKey={smitheryApiKey}
+                        setSmitheryApiKey={setSmitheryApiKey}
+                        smitheryServers={smitheryServers}
+                        setSmitheryServers={setSmitheryServers}
+                      />
+                    </CardContent>
+                  </Card>
+                </Suspense>
+              )}
+
+              <Card
+                className={cn(
+                  PANEL_BASE_CLASS,
+                  'w-full max-w-2xl transition-all duration-300',
+                  shouldShowResponsePanel ? 'xl:max-w-2xl' : 'xl:max-w-4xl'
+                )}
+                data-highlight="search-container"
+              >
                 <CardContent
                   className={cn(
                     'flex flex-col p-0',
@@ -1502,7 +1407,7 @@ Keep your response focused and concise.`,
                 </CardContent>
               </Card>
 
-            {shouldShowResponsePanel && (
+              {shouldShowResponsePanel && (
                 <Suspense fallback={<div>Loading Response Panel...</div>}>
                   <Card
                     className={cn(PANEL_BASE_CLASS, 'w-full max-w-2xl')}
@@ -1525,13 +1430,14 @@ Keep your response focused and concise.`,
                   </Card>
                 </Suspense>
               )}
-          </div>
+            </div>
 
-          <KeyboardShortcuts
-            showDocument={activePanel === 'document'}
-            activePanel={activePanel}
-            data-highlight="keyboard-shortcuts"
-          />
+            <KeyboardShortcuts
+              showDocument={activePanel === 'document'}
+              activePanel={activePanel}
+              data-highlight="keyboard-shortcuts"
+            />
+          </div>
         </div>
 
         <AnimatePresence>

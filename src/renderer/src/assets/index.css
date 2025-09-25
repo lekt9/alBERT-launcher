@@ -54,34 +54,7 @@
 
   body {
     @apply min-h-screen bg-slate-950 text-slate-100 antialiased;
-    background-attachment: fixed;
-    background-image:
-      radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.22), transparent 55%),
-      radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.18), transparent 60%),
-      linear-gradient(160deg, rgba(2, 6, 23, 0.92), rgba(15, 23, 42, 0.94));
     overflow-x: hidden;
-    position: relative;
-  }
-
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.12), transparent 60%);
-    opacity: 0.8;
-    z-index: -1;
-  }
-
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWx0ZXJVbml0cz0ib2JqZWN0Qm91bmRpbmdCb3giPjxmZVR1cmJ1bGVuY2UgdHlwZT0icm91ZyIgbnVtT2N0YXZlcz0iNCIgc3RpdGNoVGlsZXM9InN0aXRjaCIgc2lkZUluPSJzb3VyY2VBbHBoYSIgYmFzZUZyZXF1ZW5jeT0iMSIvPjxmZUZsb29kIGZsb29kLWNvbG9yPSJyZ2JhKDAsIDAsIDAsIDAuMTUpIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEyOCIgaGVpZ2h0PSIxMjgiIGZpbHRlcj0idXJsKCNhKSIgZmlsbD0iI2ZmZiIgb3BhY2l0eT0iMC4yNSIvPjwvc3ZnPg==');
-    opacity: 0.35;
-    mix-blend-mode: soft-light;
-    z-index: -1;
   }
 
   h1,
