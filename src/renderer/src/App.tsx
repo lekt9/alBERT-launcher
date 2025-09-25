@@ -148,7 +148,7 @@ const DropArea: React.FC<{
 };
 
 const PANEL_BASE_CLASS =
-  'relative flex w-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.9)] transition-colors duration-200 hover:border-slate-700 focus-within:border-slate-600';
+  'relative flex w-full flex-col rounded-2xl border border-slate-800 bg-slate-950/90 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.9)] transition-colors duration-200 hover:border-slate-700 focus-within:border-slate-600';
 
 function App(): JSX.Element {
   // State Definitions
@@ -1289,6 +1289,9 @@ Keep your response focused and concise.`,
   const shouldShowResponsePanel =
     conversations.length > 0 && activePanel === 'response';
   const isSettingsActive = activePanel === 'settings';
+  const hasSmitherySection = smitheryServers.length > 0 || query.trim().length > 0;
+  const hasScrollableContent =
+    (showResults && searchResults.length > 0) || hasSmitherySection;
   const connectorSummary = useMemo(() => {
     if (activeSmitheryServers.length === 0) {
       return 'Link MCPs';
@@ -1347,52 +1350,51 @@ Keep your response focused and concise.`,
                 )}
                 data-highlight="search-container"
               >
-                <CardContent
-                  className={cn(
-                    'flex flex-col p-0',
-                    showResults && searchResults.length > 0 ? 'h-[600px]' : 'h-auto'
+                <CardContent className="flex max-h-[80vh] flex-col p-0">
+                  {searchSteps.length > 0 && (
+                    <div className="px-6 pt-6">
+                      <SearchBadges steps={searchSteps} />
+                    </div>
                   )}
-                >
-                  <div
+
+                  <div className="px-6 pb-4">
+                    <SearchBar
+                      ref={searchBarRef}
+                      query={query}
+                      setQuery={setQuery}
+                      isLoading={isLoading}
+                      useAgent={useAgent}
+                      handleAgentToggle={setUseAgent}
+                      handleInputChange={handleInputChange}
+                      onOpenSettings={toggleSettingsPanel}
+                      isSettingsActive={isSettingsActive}
+                      connectorSummary={connectorSummary}
+                      connectorCount={activeSmitheryServers.length}
+                      connectorSyncing={isSmitheryLoading}
+                      data-highlight="search-input"
+                    />
+                  </div>
+
+                  <ScrollArea
                     className={cn(
-                      'flex flex-col',
-                      showResults && searchResults.length > 0 ? 'h-full' : 'h-auto'
+                      'px-2',
+                      hasScrollableContent ? 'flex-1' : ''
                     )}
                   >
-                    {searchSteps.length > 0 && (
-                      <div className="px-6 pt-6">
-                        <SearchBadges steps={searchSteps} />
+                    {showResults && (
+                      <div className="pb-4">
+                        <SearchResults
+                          searchResults={searchResults}
+                          selectedIndex={selectedIndex}
+                          rankedChunks={rankedChunks}
+                          createStickyNote={createStickyNote}
+                          data-highlight="search-results"
+                        />
                       </div>
                     )}
-                    <div className="px-6 pb-6">
-                      <SearchBar
-                        ref={searchBarRef}
-                        query={query}
-                        setQuery={setQuery}
-                        isLoading={isLoading}
-                        useAgent={useAgent}
-                        handleAgentToggle={setUseAgent}
-                        handleInputChange={handleInputChange}
-                        onOpenSettings={toggleSettingsPanel}
-                        isSettingsActive={isSettingsActive}
-                        connectorSummary={connectorSummary}
-                        connectorCount={activeSmitheryServers.length}
-                        connectorSyncing={isSmitheryLoading}
-                        data-highlight="search-input"
-                      />
-                    </div>
 
-                    {showResults && (
-                      <SearchResults
-                        searchResults={searchResults}
-                        selectedIndex={selectedIndex}
-                        rankedChunks={rankedChunks}
-                        createStickyNote={createStickyNote}
-                        data-highlight="search-results"
-                      />
-                    )}
-                    {(smitheryServers.length > 0 || query.trim().length > 0) && (
-                      <div className="px-6 pb-6">
+                    {hasSmitherySection && (
+                      <div className="px-4 pb-6">
                         <SmitheryContextResults
                           items={smitheryResults}
                           servers={smitheryServers}
@@ -1403,7 +1405,7 @@ Keep your response focused and concise.`,
                         />
                       </div>
                     )}
-                  </div>
+                  </ScrollArea>
                 </CardContent>
               </Card>
 
