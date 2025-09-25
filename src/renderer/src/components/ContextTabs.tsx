@@ -1,76 +1,79 @@
 // @components/ContextTabs.tsx
-import React, { useCallback } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { FileText, X, ExternalLink, Pin, Languages, Clock, Percent, Globe } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
-import { cn } from '@/lib/utils';
-import { trpcClient } from '../util/trpc-client';
+import React, { useCallback } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
+import { FileText, X, ExternalLink, Pin, Languages, Clock, Percent, Globe } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+import { cn } from '@/lib/utils'
+import { trpcClient } from '../util/trpc-client'
 
 interface ContextTab {
-  path: string;
-  content: string;
-  isExpanded: boolean;
+  path: string
+  content: string
+  isExpanded: boolean
   metadata?: {
-    type: string;
-    title?: string;
-    lastModified?: number;
-    size?: number;
-    language?: string;
-    matchScore?: number;
-  };
+    type: string
+    title?: string
+    lastModified?: number
+    size?: number
+    language?: string
+    matchScore?: number
+  }
 }
 
 interface ContextTabsProps {
-  contextTabs: ContextTab[];
-  setContextTabs: React.Dispatch<React.SetStateAction<ContextTab[]>>;
+  contextTabs: ContextTab[]
+  setContextTabs: React.Dispatch<React.SetStateAction<ContextTab[]>>
 }
 
 const cardVariants = {
   initial: {
     x: 0,
     opacity: 0,
-    scale: 0.8,
+    scale: 0.8
   },
   animate: {
     x: 0,
     opacity: 1,
     scale: 1,
     transition: {
-      duration: 0.2,
-    },
+      duration: 0.2
+    }
   },
   exit: {
     x: -20,
     opacity: 0,
     scale: 0.8,
     transition: {
-      duration: 0.2,
-    },
-  },
-};
+      duration: 0.2
+    }
+  }
+}
 
 const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }) => {
-  
-  const toggleTab = useCallback((path: string) => {
-    setContextTabs((prev) =>
-      prev.map((tab) =>
-        tab.path === path ? { ...tab, isExpanded: !tab.isExpanded } : tab
+  const toggleTab = useCallback(
+    (path: string) => {
+      setContextTabs((prev) =>
+        prev.map((tab) => (tab.path === path ? { ...tab, isExpanded: !tab.isExpanded } : tab))
       )
-    );
-  }, [setContextTabs]);
+    },
+    [setContextTabs]
+  )
 
-  const removeTab = useCallback((path: string) => {
-    setContextTabs((prev) => prev.filter((tab) => tab.path !== path));
-  }, [setContextTabs]);
+  const removeTab = useCallback(
+    (path: string) => {
+      setContextTabs((prev) => prev.filter((tab) => tab.path !== path))
+    },
+    [setContextTabs]
+  )
 
   const openFile = useCallback(async (path: string) => {
     try {
-      await trpcClient.file.open.mutate(path);
+      await trpcClient.file.open.mutate(path)
     } catch (error) {
-      console.error('Failed to open file:', error);
+      console.error('Failed to open file:', error)
     }
-  }, []);
+  }, [])
 
   return (
     <AnimatePresence>
@@ -83,10 +86,10 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
           transition={{ duration: 0.3 }}
         >
           {contextTabs.map((tab) => {
-            const isWebSource = tab.metadata?.type === 'web' || tab.path.startsWith('http');
-            const displayName = isWebSource 
-              ? (tab.metadata?.title || tab.path.split('/').pop())
-              : tab.path.split('/').pop();
+            const isWebSource = tab.metadata?.type === 'web' || tab.path.startsWith('http')
+            const displayName = isWebSource
+              ? tab.metadata?.title || tab.path.split('/').pop()
+              : tab.path.split('/').pop()
 
             return (
               <motion.div
@@ -98,8 +101,8 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
               >
                 <Card
                   className={cn(
-                    "bg-background/95 shadow-lg cursor-pointer hover:shadow-xl transition-all",
-                    "w-[400px] min-h-[40px]"
+                    'bg-background/95 shadow-lg cursor-pointer hover:shadow-xl transition-all',
+                    'w-[400px] min-h-[40px]'
                   )}
                   onClick={() => toggleTab(tab.path)}
                 >
@@ -119,8 +122,8 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
                             {!tab.path.startsWith('AI Response') && !isWebSource && (
                               <button
                                 onClick={(e) => {
-                                  e.stopPropagation();
-                                  openFile(tab.path);
+                                  e.stopPropagation()
+                                  openFile(tab.path)
                                 }}
                                 className="text-muted-foreground hover:text-foreground"
                                 title="Open file"
@@ -130,9 +133,7 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
                             )}
                           </div>
                           {isWebSource && (
-                            <div className="text-xs text-muted-foreground truncate">
-                              {tab.path}
-                            </div>
+                            <div className="text-xs text-muted-foreground truncate">{tab.path}</div>
                           )}
                           <div className="flex flex-col gap-1 mt-1">
                             <div className="text-xs text-muted-foreground flex items-center gap-1">
@@ -166,8 +167,8 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
-                            e.stopPropagation();
-                            removeTab(tab.path);
+                            e.stopPropagation()
+                            removeTab(tab.path)
                           }}
                           className="text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100 p-1"
                           title="Unpin"
@@ -184,14 +185,14 @@ const ContextTabs: React.FC<ContextTabsProps> = ({ contextTabs, setContextTabs }
                   </CardContent>
                 </Card>
               </motion.div>
-            );
+            )
           })}
         </motion.div>
       )}
     </AnimatePresence>
-  );
-};
+  )
+}
 
-ContextTabs.displayName = 'ContextTabs';
+ContextTabs.displayName = 'ContextTabs'
 
-export default ContextTabs;
+export default ContextTabs

@@ -1,21 +1,21 @@
 // @components/AIResponseCard.tsx
-import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { MessageSquare } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import ReactMarkdown from 'react-markdown';
-import { cn } from '@/lib/utils';
+import React from 'react'
+import { Card, CardContent } from '@/components/ui/card'
+import { MessageSquare } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import ReactMarkdown from 'react-markdown'
+import { cn } from '@/lib/utils'
 
 interface AIResponse {
-  question: string;
-  answer: string;
-  timestamp: number;
+  question: string
+  answer: string
+  timestamp: number
 }
 
 interface AIResponseCardProps {
-  currentConversation: AIResponse;
-  selectedIndex: number;
-  addAIResponseToContext: () => void;
+  currentConversation: AIResponse
+  selectedIndex: number
+  addAIResponseToContext: () => void
 }
 
 const AIResponseCard: React.FC<AIResponseCardProps> = React.memo(
@@ -57,9 +57,7 @@ const AIResponseCard: React.FC<AIResponseCardProps> = React.memo(
                   </div>
                   <div className="flex items-center mt-2 text-xs text-muted-foreground">
                     <span>
-                      {selectedIndex === -1
-                        ? 'Press → to pin to context'
-                        : 'Press ↑ to select'}
+                      {selectedIndex === -1 ? 'Press → to pin to context' : 'Press ↑ to select'}
                     </span>
                   </div>
                 </div>
@@ -68,10 +66,10 @@ const AIResponseCard: React.FC<AIResponseCardProps> = React.memo(
           </div>
         </div>
       </div>
-    );
+    )
   }
-);
+)
 
-AIResponseCard.displayName = 'AIResponseCard';
+AIResponseCard.displayName = 'AIResponseCard'
 
-export default AIResponseCard;
+export default AIResponseCard

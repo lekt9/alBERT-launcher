@@ -13,11 +13,11 @@ export async function getContextSimilarityScores(
 ): Promise<{ path: string; scores: number[] }[]> {
   const scores = await trpcClient.embeddings.getSimilarityScores.query({
     queries,
-    documents: documents.map(d => d.content)
+    documents: documents.map((d) => d.content)
   })
 
   return documents.map((doc, docIndex) => ({
     path: doc.path,
-    scores: scores.map(queryScores => queryScores[docIndex])
+    scores: scores.map((queryScores) => queryScores[docIndex])
   }))
 }

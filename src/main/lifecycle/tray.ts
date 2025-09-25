@@ -1,13 +1,13 @@
-import { Menu, Tray, nativeImage } from 'electron';
-import path from 'node:path';
-import { config } from '../config';
+import { Menu, Tray, nativeImage } from 'electron'
+import path from 'node:path'
+import { config } from '../config'
 
 export interface CreateTrayOptions {
-  onShow: () => void;
-  onOpenFolder: () => void;
-  onQuit: () => void;
-  tooltip?: string;
-  iconPath?: string;
+  onShow: () => void
+  onOpenFolder: () => void
+  onQuit: () => void
+  tooltip?: string
+  iconPath?: string
 }
 
 export const createAppTray = ({
@@ -15,26 +15,26 @@ export const createAppTray = ({
   onOpenFolder,
   onQuit,
   tooltip = 'alBERT Launcher',
-  iconPath,
+  iconPath
 }: CreateTrayOptions): Tray => {
-  const resolvedIconPath = iconPath ?? path.join(config.vitePublic ?? '', 'electron-vite.svg');
-  const icon = nativeImage.createFromPath(resolvedIconPath);
-  const tray = new Tray(icon);
+  const resolvedIconPath = iconPath ?? path.join(config.vitePublic ?? '', 'electron-vite.svg')
+  const icon = nativeImage.createFromPath(resolvedIconPath)
+  const tray = new Tray(icon)
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show', click: onShow },
     { label: 'Open alBERT Folder', click: onOpenFolder },
-    { label: 'Quit', click: onQuit },
-  ]);
+    { label: 'Quit', click: onQuit }
+  ])
 
-  tray.setToolTip(tooltip);
-  tray.setContextMenu(contextMenu);
+  tray.setToolTip(tooltip)
+  tray.setContextMenu(contextMenu)
 
-  return tray;
-};
+  return tray
+}
 
 export const destroyTray = (tray: Tray | null): void => {
   if (tray && !tray.isDestroyed()) {
-    tray.destroy();
+    tray.destroy()
   }
-};
+}

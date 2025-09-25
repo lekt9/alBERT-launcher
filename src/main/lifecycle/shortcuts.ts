@@ -1,19 +1,16 @@
-import { globalShortcut } from 'electron';
-import log from '../logger';
+import { globalShortcut } from 'electron'
+import log from '../logger'
 
-export type ShortcutHandler = () => void;
+export type ShortcutHandler = () => void
 
-export const registerToggleShortcut = (
-  accelerator: string,
-  handler: ShortcutHandler,
-): void => {
-  const success = globalShortcut.register(accelerator, handler);
+export const registerToggleShortcut = (accelerator: string, handler: ShortcutHandler): void => {
+  const success = globalShortcut.register(accelerator, handler)
 
   if (!success) {
-    log.error(`Failed to register global shortcut: ${accelerator}`);
+    log.error(`Failed to register global shortcut: ${accelerator}`)
   }
-};
+}
 
 export const unregisterAllShortcuts = (): void => {
-  globalShortcut.unregisterAll();
-};
+  globalShortcut.unregisterAll()
+}

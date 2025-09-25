@@ -1,9 +1,7 @@
-import type { 
-  Experimental_LanguageModelV1Middleware as LanguageModelV1Middleware 
-} from "ai";
+import type { Experimental_LanguageModelV1Middleware as LanguageModelV1Middleware } from 'ai'
 
 interface ContextMiddlewareOptions {
-  getContext: () => string;
+  getContext: () => string
 }
 
 export const createContextMiddleware = (
@@ -14,7 +12,7 @@ export const createContextMiddleware = (
       // Return updated params with messages
       return {
         ...params
-      };
+      }
     }
-  };
-}; 
+  }
+}

@@ -1,5 +1,5 @@
-import React, { useRef, useImperativeHandle, forwardRef } from 'react';
-import { Input } from '@/components/ui/input';
+import React, { useRef, useImperativeHandle, forwardRef } from 'react'
+import { Input } from '@/components/ui/input'
 import {
   Search,
   Loader2,
@@ -7,27 +7,27 @@ import {
   BotIcon,
   Settings2,
   Sparkles,
-  RadioTower,
-} from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
+  RadioTower
+} from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
 
 interface SearchBarProps {
-  query: string;
-  setQuery: (query: string) => void;
-  isLoading: boolean;
-  useAgent: boolean;
-  handleAgentToggle: (checked: boolean) => void;
-  handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onOpenSettings: () => void;
-  isSettingsActive: boolean;
-  connectorSummary: string;
-  connectorCount: number;
-  connectorSyncing: boolean;
+  query: string
+  setQuery: (query: string) => void
+  isLoading: boolean
+  useAgent: boolean
+  handleAgentToggle: (checked: boolean) => void
+  handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onOpenSettings: () => void
+  isSettingsActive: boolean
+  connectorSummary: string
+  connectorCount: number
+  connectorSyncing: boolean
 }
 
 export interface SearchBarRef {
-  focus: () => void;
+  focus: () => void
 }
 
 const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(
@@ -42,17 +42,17 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(
       isSettingsActive,
       connectorSummary,
       connectorCount,
-      connectorSyncing,
+      connectorSyncing
     },
     ref
   ) => {
-    const inputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null)
 
     useImperativeHandle(ref, () => ({
       focus: () => {
-        inputRef.current?.focus();
-      },
-    }));
+        inputRef.current?.focus()
+      }
+    }))
 
     return (
       <div className="space-y-2">
@@ -97,7 +97,9 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(
                 >
                   <RadioTower className="h-3.5 w-3.5 text-sky-200" />
                   {connectorSummary}
-                  {connectorSyncing && <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-200" />}
+                  {connectorSyncing && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-200" />
+                  )}
                 </button>
               </div>
               <button
@@ -107,7 +109,13 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(
                 aria-pressed={isSettingsActive}
                 aria-label="Toggle settings"
               >
-                <div className="absolute inset-0 rounded-2xl opacity-0 transition group-hover:opacity-100 group-aria-[pressed=true]:opacity-100" style={{ background: 'linear-gradient(135deg, rgba(125,211,252,0.35), rgba(244,114,182,0.25))' }} />
+                <div
+                  className="absolute inset-0 rounded-2xl opacity-0 transition group-hover:opacity-100 group-aria-[pressed=true]:opacity-100"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, rgba(125,211,252,0.35), rgba(244,114,182,0.25))'
+                  }}
+                />
                 <Settings2 className="relative h-5 w-5" />
               </button>
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
@@ -135,10 +143,10 @@ const SearchBar = forwardRef<SearchBarRef, SearchBarProps>(
           </span>
         </div>
       </div>
-    );
+    )
   }
-);
+)
 
-SearchBar.displayName = 'SearchBar';
+SearchBar.displayName = 'SearchBar'
 
-export default SearchBar;
+export default SearchBar

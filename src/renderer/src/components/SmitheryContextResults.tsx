@@ -1,19 +1,19 @@
-import React from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ExternalLink, PlugZap, RadioTower, RefreshCcw } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import type { SmitheryContextResult, SmitheryMCPServer } from '@/types';
+import React from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ExternalLink, PlugZap, RadioTower, RefreshCcw } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import type { SmitheryContextResult, SmitheryMCPServer } from '@/types'
 
 interface SmitheryContextResultsProps extends React.HTMLAttributes<HTMLDivElement> {
-  items: SmitheryContextResult[];
-  servers: SmitheryMCPServer[];
-  isLoading?: boolean;
-  error?: string | null;
-  onOpenSettings?: () => void;
-  onRefreshServer?: (server: SmitheryMCPServer) => Promise<void> | void;
+  items: SmitheryContextResult[]
+  servers: SmitheryMCPServer[]
+  isLoading?: boolean
+  error?: string | null
+  onOpenSettings?: () => void
+  onRefreshServer?: (server: SmitheryMCPServer) => Promise<void> | void
 }
 
 const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
@@ -28,15 +28,15 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
 }) => {
   const serverMap = React.useMemo(() => {
     return servers.reduce<Record<string, SmitheryMCPServer>>((acc, server) => {
-      acc[server.id] = server;
-      return acc;
-    }, {});
-  }, [servers]);
+      acc[server.id] = server
+      return acc
+    }, {})
+  }, [servers])
 
   const activeServers = React.useMemo(
     () => servers.filter((server) => server.enabled !== false),
     [servers]
-  );
+  )
 
   const renderEmptyState = () => {
     if (activeServers.length === 0) {
@@ -44,27 +44,35 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
         <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-white/15 bg-white/5 px-6 py-10 text-center text-sm text-slate-300/80">
           <RadioTower className="h-6 w-6 text-sky-200" aria-hidden />
           <p className="max-w-sm text-xs text-slate-300/70">
-            Link Smithery MCP servers to stream live knowledge packs directly into search. Add a slug or manifest URL from smithery.ai in settings to get started.
+            Link Smithery MCP servers to stream live knowledge packs directly into search. Add a
+            slug or manifest URL from smithery.ai in settings to get started.
           </p>
-          <Button size="sm" variant="outline" onClick={onOpenSettings} className="pointer-events-auto">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenSettings}
+            className="pointer-events-auto"
+          >
             Connect MCPs
           </Button>
         </div>
-      );
+      )
     }
 
     return (
       <div className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300/80">
         <div className="flex items-center gap-2">
           <PlugZap className="h-4 w-4 text-sky-200" aria-hidden />
-          <span>No Smithery context returned yet—try refining your query or run a deeper search.</span>
+          <span>
+            No Smithery context returned yet—try refining your query or run a deeper search.
+          </span>
         </div>
         <Button size="sm" variant="ghost" onClick={onOpenSettings} className="pointer-events-auto">
           Manage connectors
         </Button>
       </div>
-    );
-  };
+    )
+  }
 
   return (
     <div
@@ -81,7 +89,8 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
           </p>
           <h3 className="text-lg font-semibold text-white">Ambient knowledge feeds</h3>
           <p className="text-xs text-slate-400/80">
-            Results stream from your linked Smithery servers in real-time to complement semantic search.
+            Results stream from your linked Smithery servers in real-time to complement semantic
+            search.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -90,8 +99,7 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
             className="flex items-center gap-1 rounded-full border-white/10 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-200"
           >
             <RadioTower className="h-3.5 w-3.5" aria-hidden />
-            {activeServers.length}{' '}
-            {activeServers.length === 1 ? 'connector' : 'connectors'}
+            {activeServers.length} {activeServers.length === 1 ? 'connector' : 'connectors'}
           </Badge>
           <Button
             size="sm"
@@ -125,17 +133,18 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
         {!isLoading && items.length > 0 && (
           <div className="grid gap-4 md:grid-cols-2">
             {items.map((item) => {
-              const server = serverMap[item.serverId];
-              const serverLabel = server?.name ?? item.serverName ?? item.serverId;
+              const server = serverMap[item.serverId]
+              const serverLabel = server?.name ?? item.serverName ?? item.serverId
               return (
                 <Card
                   key={item.id}
                   className="group relative overflow-hidden border-white/10 bg-slate-950/70"
                 >
-                  <div className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
+                  <div
+                    className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
                     style={{
                       background:
-                        'radial-gradient(circle at top, rgba(56,189,248,0.25), transparent 65%)',
+                        'radial-gradient(circle at top, rgba(56,189,248,0.25), transparent 65%)'
                     }}
                   />
                   <CardContent className="relative flex h-full flex-col gap-4 p-5">
@@ -190,7 +199,7 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
                     )}
                   </CardContent>
                 </Card>
-              );
+              )
             })}
           </div>
         )}
@@ -202,9 +211,9 @@ const SmitheryContextResults: React.FC<SmitheryContextResultsProps> = ({
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-SmitheryContextResults.displayName = 'SmitheryContextResults';
+SmitheryContextResults.displayName = 'SmitheryContextResults'
 
-export default React.memo(SmitheryContextResults);
+export default React.memo(SmitheryContextResults)

@@ -23,7 +23,13 @@ interface ResponsePanelProps {
     position: { x: number; y: number }
   ) => void
   dispatch: React.Dispatch<{
-    type: 'START_SEARCH' | 'SEARCH_SUCCESS' | 'SEARCH_ERROR' | 'START_CHAT' | 'CHAT_COMPLETE' | 'RESET'
+    type:
+      | 'START_SEARCH'
+      | 'SEARCH_SUCCESS'
+      | 'SEARCH_ERROR'
+      | 'START_CHAT'
+      | 'CHAT_COMPLETE'
+      | 'RESET'
     payload?: any
   }>
   setSearchResults: React.Dispatch<React.SetStateAction<SearchResult[]>>
@@ -130,7 +136,7 @@ const ResponseItem = React.forwardRef<
                 {response.answer}
               </ReactMarkdown>
             </div>
-            
+
             {response.commit && (
               <div className="mt-4 space-y-2">
                 <h4 className="text-sm font-medium">Commit Changes:</h4>
@@ -191,7 +197,9 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
 
   useEffect(() => {
     if (autoScroll && scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
+      const scrollContainer = scrollAreaRef.current.querySelector(
+        '[data-radix-scroll-area-viewport]'
+      )
       if (scrollContainer) {
         scrollContainer.scrollTop = scrollContainer.scrollHeight
       }
@@ -214,7 +222,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
 
     try {
       const quickResults = await trpcClient.search.quick.query(followUpQuestion)
-      
+
       if (quickResults.length === 0) {
         setShowResults(false)
         dispatch({ type: 'SEARCH_ERROR', payload: 'No results found' })
@@ -225,12 +233,12 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
       setSearchResults(filteredResults)
       setShowResults(true)
 
-      dispatch({ 
-        type: 'START_CHAT', 
-        payload: { 
-          query: followUpQuestion, 
-          results: filteredResults 
-        } 
+      dispatch({
+        type: 'START_CHAT',
+        payload: {
+          query: followUpQuestion,
+          results: filteredResults
+        }
       })
 
       await askAIQuestion(followUpQuestion)
@@ -256,20 +264,22 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-        <ScrollArea 
+        <ScrollArea
           className="flex-1 min-h-0"
           onScroll={handleScroll}
           ref={scrollAreaRef}
           style={{
-            maskImage: 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
-            WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
+            maskImage:
+              'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)',
+            WebkitMaskImage:
+              'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)'
           }}
         >
           <div className="px-4 py-2">
             {conversations.map((response, index) => (
-              <ResponseItem 
-                key={index} 
-                response={response} 
+              <ResponseItem
+                key={index}
+                response={response}
                 createStickyNote={createStickyNote}
                 ref={index === conversations.length - 1 ? lastMessageRef : undefined}
               />
@@ -281,7 +291,7 @@ const ResponsePanel: React.FC<ResponsePanelProps> = ({
             )}
           </div>
         </ScrollArea>
-        
+
         <form
           onSubmit={handleFollowUpSubmit}
           className="flex-none p-4 border-t bg-background/95 backdrop-blur-sm"

@@ -29,10 +29,7 @@ interface RankResult {
   text?: string
 }
 
-async function rank(
-  query: string,
-  documents: string[]
-): Promise<RankResult[]> {
+async function rank(query: string, documents: string[]): Promise<RankResult[]> {
   try {
     await initializeModel()
 

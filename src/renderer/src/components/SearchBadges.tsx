@@ -23,7 +23,7 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
   }, [steps])
 
   // Filter out completed evaluation steps without answers
-  const filteredSteps = steps.filter(step => {
+  const filteredSteps = steps.filter((step) => {
     if (step.query === 'Evaluating results...' && step.status === 'complete' && !step.answer) {
       return false
     }
@@ -45,13 +45,14 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
   }
 
   return (
-    <div 
+    <div
       ref={scrollContainerRef}
       className="flex flex-wrap gap-2 overflow-y-auto max-h-[4.5rem] min-h-[4.5rem] px-4 py-2 scrollbar-thin scrollbar-thumb-primary scrollbar-track-transparent"
       style={{
         scrollBehavior: 'smooth',
         maskImage: 'linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)',
-        WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)'
+        WebkitMaskImage:
+          'linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)'
       }}
     >
       <div className="flex flex-wrap gap-2 w-full">
@@ -59,11 +60,15 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
           <Badge
             key={step.id}
             variant={
-              step.status === 'waiting' ? 'secondary' :
-              step.status === 'searching' ? 'default' :
-              step.status === 'thinking' ? 'outline' :
-              step.status === 'complete' ? 'default' :
-              'destructive'
+              step.status === 'waiting'
+                ? 'secondary'
+                : step.status === 'searching'
+                  ? 'default'
+                  : step.status === 'thinking'
+                    ? 'outline'
+                    : step.status === 'complete'
+                      ? 'default'
+                      : 'destructive'
             }
             className={cn(
               'whitespace-nowrap transition-all duration-200 flex h-6 items-center gap-1',
@@ -73,14 +78,10 @@ export default function SearchBadges({ steps }: { steps: SearchStep[] }): JSX.El
           >
             {getStatusIcon(step.status)}
             {step.query}
-            {step.answer && (
-              <span className="ml-2 text-xs opacity-75">
-                → {step.answer}
-              </span>
-            )}
+            {step.answer && <span className="ml-2 text-xs opacity-75">→ {step.answer}</span>}
           </Badge>
         ))}
       </div>
     </div>
   )
-} 
+}

@@ -54,6 +54,17 @@ class SearchDB {
     this.setupShutdownHandlers()
   }
 
+  public async clearIndexOutside(basePath: string): Promise<void> {
+    const normalisedBase = path.resolve(basePath)
+    const existingPaths = Object.keys(this.fileIndex)
+
+    for (const indexedPath of existingPaths) {
+      if (!indexedPath.startsWith(normalisedBase)) {
+        await this.removeFile(indexedPath)
+      }
+    }
+  }
+
   public async indexDirectory(
     dirPath: string,
     progressCallback?: (progress: number, status: string) => void
@@ -167,7 +178,7 @@ class SearchDB {
       if (this.isShuttingDown) return
       this.isShuttingDown = true
       console.log('Shutting down Weaviate embedded server...')
-      await this.persist()  // Ensure data is persisted before shutdown
+      await this.persist() // Ensure data is persisted before shutdown
       await this.shutdown()
       // Don't call process.exit() directly - let the app handle shutdown
     }
@@ -226,19 +237,21 @@ class SearchDB {
     return await readContent(filePath)
   }
 
-  public async search(searchTerm: string): Promise<Array<{
-    text: string
-    metadata: {
-      path: string
-      created_at: number
-      modified_at: number
-      filetype: string
-      languages: string[]
-      links: string[]
-      owner: null
-      seen_at: number
-    }
-  }>> {
+  public async search(searchTerm: string): Promise<
+    Array<{
+      text: string
+      metadata: {
+        path: string
+        created_at: number
+        modified_at: number
+        filetype: string
+        languages: string[]
+        links: string[]
+        owner: null
+        seen_at: number
+      }
+    }>
+  > {
     try {
       if (index !== -1) {
         badPorts.splice(index, 1)
@@ -251,7 +264,7 @@ class SearchDB {
         .withClassName('File')
         .withHybrid({
           query: searchTerm,
-          vector,
+          vector
         })
         .withLimit(10)
         .withFields('content path lastModified extension')

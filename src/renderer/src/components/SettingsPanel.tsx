@@ -1,29 +1,30 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Lock, LockOpen, PlugZap, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react';
-import type { LLMSettings, SmitheryDirectoryEntry, SmitheryMCPServer } from '@/types';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Loader2, Lock, LockOpen, PlugZap, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
+import { trpcClient } from '@/util/trpc-client'
+import type { LLMSettings, SmitheryDirectoryEntry, SmitheryMCPServer } from '@/types'
 import {
   buildSmitheryManifestUrl,
   createSmitheryServerFromInput,
-  fetchSmitheryDirectory,
-} from '@/lib/smithery';
+  fetchSmitheryDirectory
+} from '@/lib/smithery'
 
 interface SettingsPanelProps {
-  isPrivate: boolean;
-  setIsPrivate: (checked: boolean) => void;
-  privateSettings: LLMSettings;
-  publicSettings: LLMSettings;
-  setPrivateSettings: (settings: LLMSettings) => void;
-  setPublicSettings: (settings: LLMSettings) => void;
-  setActivePanel: (panel: 'none' | 'chat' | 'document' | 'settings') => void;
-  smitheryApiKey: string;
-  setSmitheryApiKey: (apiKey: string) => void;
-  smitheryServers: SmitheryMCPServer[];
-  setSmitheryServers: React.Dispatch<React.SetStateAction<SmitheryMCPServer[]>>;
+  isPrivate: boolean
+  setIsPrivate: (checked: boolean) => void
+  privateSettings: LLMSettings
+  publicSettings: LLMSettings
+  setPrivateSettings: (settings: LLMSettings) => void
+  setPublicSettings: (settings: LLMSettings) => void
+  setActivePanel: (panel: 'none' | 'chat' | 'document' | 'settings') => void
+  smitheryApiKey: string
+  setSmitheryApiKey: (apiKey: string) => void
+  smitheryServers: SmitheryMCPServer[]
+  setSmitheryServers: React.Dispatch<React.SetStateAction<SmitheryMCPServer[]>>
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -37,166 +38,260 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   smitheryApiKey,
   setSmitheryApiKey,
   smitheryServers,
-  setSmitheryServers,
+  setSmitheryServers
 }) => {
   const [localSettings, setLocalSettings] = useState<LLMSettings>(
     isPrivate ? privateSettings : publicSettings
-  );
-  const baseUrlRef = useRef<HTMLInputElement>(null);
+  )
+  const baseUrlRef = useRef<HTMLInputElement>(null)
 
-  const [localSmitheryKey, setLocalSmitheryKey] = useState<string>(smitheryApiKey);
-  const [newConnector, setNewConnector] = useState<string>('');
-  const [smitheryError, setSmitheryError] = useState<string | null>(null);
-  const [directory, setDirectory] = useState<SmitheryDirectoryEntry[]>([]);
-  const [isSavingSmithery, setIsSavingSmithery] = useState(false);
-  const [isDirectoryLoading, setIsDirectoryLoading] = useState(false);
-  const [directoryError, setDirectoryError] = useState<string | null>(null);
-  const [directoryVersion, setDirectoryVersion] = useState(0);
+  const [localSmitheryKey, setLocalSmitheryKey] = useState<string>(smitheryApiKey)
+  const [newConnector, setNewConnector] = useState<string>('')
+  const [smitheryError, setSmitheryError] = useState<string | null>(null)
+  const [directory, setDirectory] = useState<SmitheryDirectoryEntry[]>([])
+  const [isSavingSmithery, setIsSavingSmithery] = useState(false)
+  const [isDirectoryLoading, setIsDirectoryLoading] = useState(false)
+  const [directoryError, setDirectoryError] = useState<string | null>(null)
+  const [directoryVersion, setDirectoryVersion] = useState(0)
+  const [workspacePath, setWorkspacePath] = useState<string>('')
+  const [defaultWorkspacePath, setDefaultWorkspacePath] = useState<string>('')
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [workspaceSuccess, setWorkspaceSuccess] = useState<string | null>(null)
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState<boolean>(false)
+  const [isSavingWorkspace, setIsSavingWorkspace] = useState<boolean>(false)
+  const [initialWorkspacePath, setInitialWorkspacePath] = useState<string>('')
 
   useEffect(() => {
-    baseUrlRef.current?.focus();
-  }, []);
+    baseUrlRef.current?.focus()
+  }, [])
 
   useEffect(() => {
-    setLocalSettings(isPrivate ? privateSettings : publicSettings);
-  }, [isPrivate, privateSettings, publicSettings]);
+    setLocalSettings(isPrivate ? privateSettings : publicSettings)
+  }, [isPrivate, privateSettings, publicSettings])
 
   useEffect(() => {
-    setLocalSmitheryKey(smitheryApiKey);
-  }, [smitheryApiKey]);
+    setLocalSmitheryKey(smitheryApiKey)
+  }, [smitheryApiKey])
+
+  useEffect(() => {
+    let isActive = true
+
+    const loadWorkspacePath = async (): Promise<void> => {
+      setIsWorkspaceLoading(true)
+      setWorkspaceError(null)
+      try {
+        const [current, fallback] = await Promise.all([
+          trpcClient.folder.getCurrent.query(),
+          trpcClient.folder.getDefault.query()
+        ])
+
+        if (!isActive) return
+
+        setWorkspacePath(current.path)
+        setInitialWorkspacePath(current.path)
+        setDefaultWorkspacePath(fallback.path)
+      } catch (error) {
+        console.error('Failed to load workspace folder', error)
+        if (!isActive) return
+        setWorkspaceError('Unable to load workspace folder preferences.')
+      } finally {
+        if (isActive) {
+          setIsWorkspaceLoading(false)
+        }
+      }
+    }
+
+    void loadWorkspacePath()
+
+    return () => {
+      isActive = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!workspaceSuccess) return
+    const timer = setTimeout(() => setWorkspaceSuccess(null), 4000)
+    return () => clearTimeout(timer)
+  }, [workspaceSuccess])
 
   const effectiveSmitheryKey = useMemo(() => {
-    const candidate = (localSmitheryKey || smitheryApiKey || '').trim();
-    return candidate.length > 0 ? candidate : undefined;
-  }, [localSmitheryKey, smitheryApiKey]);
+    const candidate = (localSmitheryKey || smitheryApiKey || '').trim()
+    return candidate.length > 0 ? candidate : undefined
+  }, [localSmitheryKey, smitheryApiKey])
 
   useEffect(() => {
-    let isMounted = true;
-    const controller = new AbortController();
+    let isMounted = true
+    const controller = new AbortController()
 
     const loadDirectory = async () => {
-      setIsDirectoryLoading(true);
-      setDirectoryError(null);
+      setIsDirectoryLoading(true)
+      setDirectoryError(null)
       try {
         const entries = await fetchSmitheryDirectory({
           apiKey: smitheryApiKey || undefined,
-          signal: controller.signal,
-        });
+          signal: controller.signal
+        })
         if (isMounted) {
-          setDirectory(entries);
+          setDirectory(entries)
         }
       } catch (error) {
         if (!isMounted || (error instanceof DOMException && error.name === 'AbortError')) {
-          return;
+          return
         }
-        console.warn('Failed to fetch Smithery directory', error);
-        setDirectoryError('Unable to reach Smithery directory right now.');
+        console.warn('Failed to fetch Smithery directory', error)
+        setDirectoryError('Unable to reach Smithery directory right now.')
       } finally {
         if (isMounted) {
-          setIsDirectoryLoading(false);
+          setIsDirectoryLoading(false)
         }
       }
-    };
+    }
 
-    loadDirectory();
+    loadDirectory()
 
     return () => {
-      isMounted = false;
-      controller.abort();
-    };
-  }, [smitheryApiKey, directoryVersion]);
+      isMounted = false
+      controller.abort()
+    }
+  }, [smitheryApiKey, directoryVersion])
 
   const handleSaveSettings = () => {
     if (isPrivate) {
-      setPrivateSettings(localSettings);
+      setPrivateSettings(localSettings)
     } else {
-      setPublicSettings(localSettings);
+      setPublicSettings(localSettings)
     }
-    setActivePanel('none');
-  };
+    setActivePanel('none')
+  }
 
   const handleSaveSmitheryKey = () => {
-    setSmitheryApiKey((localSmitheryKey || '').trim());
-    setSmitheryError(null);
-  };
+    setSmitheryApiKey((localSmitheryKey || '').trim())
+    setSmitheryError(null)
+  }
 
   const upsertServer = useCallback(
     (server: SmitheryMCPServer) => {
       setSmitheryServers((prev) => {
-        const existing = prev.find((item) => item.id === server.id || item.slug === server.slug);
-        const merged = existing
-          ? { ...server, enabled: existing.enabled }
-          : server;
-        const filtered = prev.filter((item) => item.id !== merged.id);
-        return [...filtered, merged].sort((a, b) => a.name.localeCompare(b.name));
-      });
+        const existing = prev.find((item) => item.id === server.id || item.slug === server.slug)
+        const merged = existing ? { ...server, enabled: existing.enabled } : server
+        const filtered = prev.filter((item) => item.id !== merged.id)
+        return [...filtered, merged].sort((a, b) => a.name.localeCompare(b.name))
+      })
     },
     [setSmitheryServers]
-  );
+  )
 
   const handleAddConnector = async (input?: string) => {
-    const target = (input ?? newConnector).trim();
+    const target = (input ?? newConnector).trim()
     if (!target) {
-      setSmitheryError('Provide a Smithery slug or manifest URL.');
-      return;
+      setSmitheryError('Provide a Smithery slug or manifest URL.')
+      return
     }
 
-    setIsSavingSmithery(true);
-    setSmitheryError(null);
+    setIsSavingSmithery(true)
+    setSmitheryError(null)
     try {
       const server = await createSmitheryServerFromInput(target, {
-        apiKey: effectiveSmitheryKey,
-      });
-      upsertServer(server);
-      setNewConnector('');
+        apiKey: effectiveSmitheryKey
+      })
+      upsertServer(server)
+      setNewConnector('')
     } catch (error) {
-      console.error('Failed to add Smithery connector', error);
-      setSmitheryError(
-        error instanceof Error ? error.message : 'Unable to add Smithery connector.'
-      );
+      console.error('Failed to add Smithery connector', error)
+      setSmitheryError(error instanceof Error ? error.message : 'Unable to add Smithery connector.')
     } finally {
-      setIsSavingSmithery(false);
+      setIsSavingSmithery(false)
     }
-  };
+  }
 
   const handleAddDirectoryEntry = async (entry: SmitheryDirectoryEntry) => {
-    const manifest = entry.manifestUrl ?? buildSmitheryManifestUrl(entry.slug);
-    await handleAddConnector(manifest);
-  };
+    const manifest = entry.manifestUrl ?? buildSmitheryManifestUrl(entry.slug)
+    await handleAddConnector(manifest)
+  }
 
   const handleRefreshConnector = async (server: SmitheryMCPServer) => {
-    setIsSavingSmithery(true);
-    setSmitheryError(null);
+    setIsSavingSmithery(true)
+    setSmitheryError(null)
     try {
       const refreshed = await createSmitheryServerFromInput(server.manifestUrl ?? server.slug, {
         apiKey: effectiveSmitheryKey,
-        existing: server,
-      });
-      upsertServer({ ...refreshed, enabled: server.enabled });
+        existing: server
+      })
+      upsertServer({ ...refreshed, enabled: server.enabled })
     } catch (error) {
-      console.error('Failed to refresh Smithery connector', error);
+      console.error('Failed to refresh Smithery connector', error)
       setSmitheryError(
         error instanceof Error ? error.message : 'Unable to refresh connector metadata.'
-      );
+      )
     } finally {
-      setIsSavingSmithery(false);
+      setIsSavingSmithery(false)
     }
-  };
+  }
 
   const handleToggleConnector = (serverId: string, enabled: boolean) => {
     setSmitheryServers((prev) =>
       prev.map((server) => (server.id === serverId ? { ...server, enabled } : server))
-    );
-  };
+    )
+  }
 
   const handleRemoveConnector = (serverId: string) => {
-    setSmitheryServers((prev) => prev.filter((server) => server.id !== serverId));
-  };
+    setSmitheryServers((prev) => prev.filter((server) => server.id !== serverId))
+  }
 
   const activeConnectors = useMemo(
     () => smitheryServers.filter((server) => server.enabled !== false),
     [smitheryServers]
-  );
+  )
+
+  const hasWorkspaceChanges = workspacePath.trim() !== initialWorkspacePath.trim()
+
+  const handleBrowseWorkspace = async (): Promise<void> => {
+    try {
+      const result = await trpcClient.folder.choose.mutate()
+      if (result.path) {
+        setWorkspacePath(result.path)
+        setWorkspaceError(null)
+      }
+    } catch (error) {
+      console.error('Failed to select workspace folder', error)
+      setWorkspaceError('Unable to open folder picker.')
+    }
+  }
+
+  const handleResetWorkspace = (): void => {
+    if (defaultWorkspacePath) {
+      setWorkspacePath(defaultWorkspacePath)
+    }
+  }
+
+  const handleSaveWorkspace = async (): Promise<void> => {
+    if (!workspacePath.trim()) {
+      setWorkspaceError('Provide a valid folder path.')
+      return
+    }
+
+    setIsSavingWorkspace(true)
+    setWorkspaceError(null)
+    try {
+      const result = await trpcClient.folder.setCurrent.mutate({ path: workspacePath.trim() })
+      setWorkspacePath(result.path)
+      setInitialWorkspacePath(result.path)
+      setWorkspaceSuccess('Workspace folder updated. Re-indexing has started.')
+    } catch (error) {
+      console.error('Failed to update workspace folder', error)
+      setWorkspaceError('Unable to update workspace folder.')
+    } finally {
+      setIsSavingWorkspace(false)
+    }
+  }
+
+  const handleOpenWorkspace = async (): Promise<void> => {
+    try {
+      await trpcClient.folder.openAlBERT.mutate()
+    } catch (error) {
+      console.error('Failed to open workspace folder', error)
+    }
+  }
 
   return (
     <div className="flex h-full flex-col gap-6" onClick={(event) => event.stopPropagation()}>
@@ -209,23 +304,95 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         </div>
       </header>
 
+      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-white">Workspace folder</p>
+            <p className="text-xs text-slate-300/75">
+              This folder is continuously indexed for contextual search.
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleOpenWorkspace}>
+            Open
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          <label
+            htmlFor="workspace-folder"
+            className="text-xs uppercase tracking-[0.3em] text-slate-300/70"
+          >
+            Folder path
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              id="workspace-folder"
+              value={workspacePath}
+              onChange={(event) => setWorkspacePath(event.target.value)}
+              disabled={isWorkspaceLoading || isSavingWorkspace}
+              className="flex-1"
+              placeholder="Select a folder to monitor"
+            />
+            <div className="flex gap-2 sm:flex-none">
+              <Button
+                variant="outline"
+                onClick={handleBrowseWorkspace}
+                disabled={isSavingWorkspace}
+              >
+                Browse…
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleResetWorkspace}
+                disabled={isSavingWorkspace || !defaultWorkspacePath}
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleSaveWorkspace}
+              disabled={isWorkspaceLoading || isSavingWorkspace || !hasWorkspaceChanges}
+            >
+              {isSavingWorkspace ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving
+                </span>
+              ) : (
+                'Save changes'
+              )}
+            </Button>
+          </div>
+          {workspaceError && <p className="text-xs text-amber-300/90">{workspaceError}</p>}
+          {workspaceSuccess && <p className="text-xs text-emerald-300/90">{workspaceSuccess}</p>}
+        </div>
+      </section>
+
       <section className="space-y-4">
         <div className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/5 px-4 py-3">
           <div>
             <p className="text-sm font-medium text-white">Privacy mode</p>
             <p className="text-xs text-slate-300/75">
-              {isPrivate ? 'Run prompts against your local Ollama stack.' : 'Use cloud-hosted models via OpenRouter.'}
+              {isPrivate
+                ? 'Run prompts against your local Ollama stack.'
+                : 'Use cloud-hosted models via OpenRouter.'}
             </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5">
-              {isPrivate ? <Lock className="h-4 w-4 text-emerald-200" /> : <LockOpen className="h-4 w-4 text-sky-200" />}
+              {isPrivate ? (
+                <Lock className="h-4 w-4 text-emerald-200" />
+              ) : (
+                <LockOpen className="h-4 w-4 text-sky-200" />
+              )}
             </div>
             <Switch
               id="privacy"
               checked={isPrivate}
               onCheckedChange={(checked) => {
-                setIsPrivate(checked);
+                setIsPrivate(checked)
               }}
               className="data-[state=checked]:bg-sky-400/90"
             />
@@ -234,7 +401,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
         <div className="grid gap-3 rounded-3xl border border-white/10 bg-white/5 p-5">
           <div className="grid gap-2">
-            <label htmlFor="baseUrl" className="text-xs uppercase tracking-[0.3em] text-slate-300/70">
+            <label
+              htmlFor="baseUrl"
+              className="text-xs uppercase tracking-[0.3em] text-slate-300/70"
+            >
               Base URL
             </label>
             <Input
@@ -244,14 +414,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               onChange={(event) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  baseUrl: event.target.value,
+                  baseUrl: event.target.value
                 }))
               }
               placeholder={isPrivate ? 'http://localhost:11434/v1' : 'https://openrouter.ai/api/v1'}
             />
           </div>
           <div className="grid gap-2">
-            <label htmlFor="apiKey" className="text-xs uppercase tracking-[0.3em] text-slate-300/70">
+            <label
+              htmlFor="apiKey"
+              className="text-xs uppercase tracking-[0.3em] text-slate-300/70"
+            >
               API key {isPrivate && '(optional)'}
             </label>
             <Input
@@ -261,7 +434,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               onChange={(event) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  apiKey: event.target.value,
+                  apiKey: event.target.value
                 }))
               }
               placeholder={isPrivate ? 'ollama-key (optional)' : 'sk-...'}
@@ -277,7 +450,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               onChange={(event) =>
                 setLocalSettings((prev) => ({
                   ...prev,
-                  model: event.target.value,
+                  model: event.target.value
                 }))
               }
               placeholder={isPrivate ? 'llama3.2:3b' : 'openai/gpt-4o-mini'}
@@ -291,7 +464,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           <div>
             <p className="text-sm font-semibold text-white">Smithery Model Context Protocol</p>
             <p className="text-xs text-slate-300/80">
-              Link curated knowledge packs from smithery.ai to stream additional context into chat and search.
+              Link curated knowledge packs from smithery.ai to stream additional context into chat
+              and search.
             </p>
           </div>
           <Badge className="rounded-full border-white/10 bg-white/10 text-[11px] uppercase tracking-[0.3em] text-slate-200">
@@ -344,20 +518,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 {isSavingSmithery ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add connector'}
               </Button>
             </div>
-            {smitheryError && (
-              <p className="text-xs text-red-300">{smitheryError}</p>
-            )}
+            {smitheryError && <p className="text-xs text-red-300">{smitheryError}</p>}
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs uppercase tracking-[0.32em] text-slate-300/70">Active connectors</h3>
+              <h3 className="text-xs uppercase tracking-[0.32em] text-slate-300/70">
+                Active connectors
+              </h3>
               <span className="text-xs text-slate-400/70">{activeConnectors.length} enabled</span>
             </div>
             {smitheryServers.length === 0 ? (
               <div className="flex items-center gap-3 rounded-3xl border border-dashed border-white/15 bg-white/5 px-4 py-4 text-xs text-slate-300/75">
                 <PlugZap className="h-4 w-4 text-sky-200" />
-                Paste a Smithery manifest URL or pick from the directory below to start streaming MCP context.
+                Paste a Smithery manifest URL or pick from the directory below to start streaming
+                MCP context.
               </div>
             ) : (
               <ScrollArea className="max-h-60 pr-3">
@@ -433,7 +608,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs uppercase tracking-[0.32em] text-slate-300/70">Smithery directory</h3>
+              <h3 className="text-xs uppercase tracking-[0.32em] text-slate-300/70">
+                Smithery directory
+              </h3>
               <Button
                 size="sm"
                 variant="ghost"
@@ -453,7 +630,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 )}
                 {!isDirectoryLoading && directory.length === 0 && (
                   <div className="text-xs text-slate-300/70">
-                    No public directory entries found. Save your API key if you have access to private catalogs.
+                    No public directory entries found. Save your API key if you have access to
+                    private catalogs.
                   </div>
                 )}
                 {directory.map((entry) => (
@@ -497,8 +675,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <Button
           variant="outline"
           onClick={() => {
-            setLocalSettings(isPrivate ? privateSettings : publicSettings);
-            setActivePanel('none');
+            setLocalSettings(isPrivate ? privateSettings : publicSettings)
+            setActivePanel('none')
           }}
         >
           Cancel
@@ -506,9 +684,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <Button onClick={handleSaveSettings}>Save changes</Button>
       </div>
     </div>
-  );
-};
+  )
+}
 
-SettingsPanel.displayName = 'SettingsPanel';
+SettingsPanel.displayName = 'SettingsPanel'
 
-export default React.memo(SettingsPanel);
+export default React.memo(SettingsPanel)

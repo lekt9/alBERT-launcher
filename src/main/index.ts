@@ -1,134 +1,134 @@
-import {
-  app,
-  shell,
-  BrowserWindow,
-  Tray,
-} from 'electron';
-import path from 'node:path';
-import { destroyTray, createAppTray } from './lifecycle/tray';
-import { createMainWindow } from './lifecycle/window-manager';
-import { registerIpcRouter } from './lifecycle/ipc';
-import { registerToggleShortcut, unregisterAllShortcuts } from './lifecycle/shortcuts';
+import { app, shell, BrowserWindow, Tray } from 'electron'
+import path from 'node:path'
+import { destroyTray, createAppTray } from './lifecycle/tray'
+import { createMainWindow } from './lifecycle/window-manager'
+import { registerIpcRouter } from './lifecycle/ipc'
+import { registerToggleShortcut, unregisterAllShortcuts } from './lifecycle/shortcuts'
 import {
   shutdownSearchDb,
   startSearchIndexing,
   persistSearchDb,
-  type IndexingProgressPayload,
-} from './lifecycle/search-service';
-import log from './logger';
+  type IndexingProgressPayload
+} from './lifecycle/search-service'
+import log from './logger'
+import { getWatchDirectory } from './preferences'
 
-process.env.APP_ROOT = path.join(__dirname, '..');
-app.commandLine.appendSwitch('enable-unsafe-webgpu');
+process.env.APP_ROOT = path.join(__dirname, '..')
+app.commandLine.appendSwitch('enable-unsafe-webgpu')
 
-let mainWindow: BrowserWindow | null = null;
-let tray: Tray | null = null;
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 
 const sendIndexingProgress = (payload: IndexingProgressPayload): void => {
-  mainWindow?.webContents.send('indexing-progress', payload);
-};
+  mainWindow?.webContents.send('indexing-progress', payload)
+}
 
 const showMainWindow = (): void => {
   if (!mainWindow) {
-    return;
+    return
   }
 
   if (!mainWindow.isVisible()) {
-    mainWindow.show();
+    mainWindow.show()
   }
-  mainWindow.focus();
-};
+  mainWindow.focus()
+}
 
 const hideMainWindow = (): void => {
-  mainWindow?.hide();
-};
+  mainWindow?.hide()
+}
 
 const toggleMainWindow = (): void => {
   if (!mainWindow) {
-    return;
+    return
   }
 
   if (mainWindow.isVisible()) {
-    hideMainWindow();
+    hideMainWindow()
   } else {
-    showMainWindow();
+    showMainWindow()
   }
-};
+}
 
-const openAlBERTFolder = (): void => {
-  const albertPath = path.join(app.getPath('home'), 'alBERT');
-  void shell.openPath(albertPath).catch((error) => {
-    log.error('Failed to open alBERT folder', error);
-  });
-};
+const openWorkspaceFolder = async (): Promise<void> => {
+  try {
+    const targetDirectory = await getWatchDirectory()
+    await shell.openPath(targetDirectory)
+  } catch (error) {
+    log.error('Failed to open workspace folder', error)
+  }
+}
 
 const initialiseMainWindow = (): void => {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    return;
+    return
   }
 
   mainWindow = createMainWindow({
     onClose: () => {
-      void shutdownSearchDb();
+      void shutdownSearchDb()
     },
     onClosed: () => {
-      mainWindow = null;
-    },
-  });
+      mainWindow = null
+    }
+  })
 
-  registerIpcRouter(mainWindow);
-  void startSearchIndexing(sendIndexingProgress);
-};
+  registerIpcRouter(mainWindow)
+  void startSearchIndexing(sendIndexingProgress)
+}
 
 const initialiseTray = (): void => {
   if (tray && !tray.isDestroyed()) {
-    return;
+    return
   }
 
   tray = createAppTray({
     onShow: showMainWindow,
-    onOpenFolder: openAlBERTFolder,
-    onQuit: () => app.quit(),
-  });
-};
+    onOpenFolder: () => {
+      void openWorkspaceFolder()
+    },
+    onQuit: () => app.quit()
+  })
+}
 
 const bootstrapApplication = (): void => {
-  initialiseMainWindow();
-  initialiseTray();
-  registerToggleShortcut('Alt+Space', toggleMainWindow);
-};
+  initialiseMainWindow()
+  initialiseTray()
+  registerToggleShortcut('Alt+Space', toggleMainWindow)
+}
 
 app.whenReady().then(() => {
   try {
-    bootstrapApplication();
+    bootstrapApplication()
   } catch (error) {
-    log.error('Failed to bootstrap application', error);
+    log.error('Failed to bootstrap application', error)
   }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      initialiseMainWindow();
+      initialiseMainWindow()
     }
-    showMainWindow();
-  });
-});
+    showMainWindow()
+  })
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    app.quit();
+    app.quit()
   }
-});
+})
 
 app.on('will-quit', () => {
-  unregisterAllShortcuts();
-  void persistSearchDb();
-  void shutdownSearchDb();
-  destroyTray(tray);
-  tray = null;
-});
+  unregisterAllShortcuts()
+  void persistSearchDb()
+  void shutdownSearchDb()
+  destroyTray(tray)
+  tray = null
+})
 
 app.on('web-contents-created', (_, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: 'deny' };
-  });
-});
+    void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+})

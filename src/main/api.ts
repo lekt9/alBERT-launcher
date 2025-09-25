@@ -1,6 +1,6 @@
 import { initTRPC } from '@trpc/server'
 import { z } from 'zod'
-import { BrowserWindow, app, shell } from 'electron'
+import { BrowserWindow, app, shell, dialog } from 'electron'
 import { BraveSearch } from 'brave-search'
 import SearchDB from './db'
 import log from './logger'
@@ -9,18 +9,21 @@ import { readContent } from './utils/reader'
 import { embed, rerank } from './embeddings'
 import { SearchResult, CommonSearchResult } from './types'
 import { config } from './config'
+import { promises as fs } from 'node:fs'
+import { getDefaultWatchDirectory, getWatchDirectory, setWatchDirectory } from './preferences'
+import { shutdownSearchDb, startSearchIndexing } from './lifecycle/search-service'
 
 interface CacheEntry {
-  timestamp: number;
-  results: SearchResult[];
+  timestamp: number
+  results: SearchResult[]
 }
 
-const searchCache = new Map<string, CacheEntry>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+const searchCache = new Map<string, CacheEntry>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in milliseconds
 
 // Helper function to check if cache entry is still valid
 function isCacheValid(entry: CacheEntry): boolean {
-  return Date.now() - entry.timestamp < CACHE_DURATION;
+  return Date.now() - entry.timestamp < CACHE_DURATION
 }
 
 const t = initTRPC.create({
@@ -37,31 +40,32 @@ async function getPerplexityAnswer(searchTerm: string): Promise<SearchResult | n
     return null
   }
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        "model": "perplexity/llama-3.1-sonar-small-128k-online",
-        "messages": [
+        model: 'perplexity/llama-3.1-sonar-small-128k-online',
+        messages: [
           {
-            "role": "system",
-            "content": "You are a search engine api that provides answers to questions with as many links to sources as possible. You must include a link url in your answer"
+            role: 'system',
+            content:
+              'You are a search engine api that provides answers to questions with as many links to sources as possible. You must include a link url in your answer'
           },
           {
-            "role": "user",
-            "content": searchTerm
+            role: 'user',
+            content: searchTerm
           }
         ]
       })
-    });
+    })
 
-    const data = await response.json();
-    const answer = data.choices?.[0]?.message?.content;
+    const data = await response.json()
+    const answer = data.choices?.[0]?.message?.content
 
-    if (!answer) return null;
+    if (!answer) return null
 
     return {
       text: answer,
@@ -78,10 +82,10 @@ async function getPerplexityAnswer(searchTerm: string): Promise<SearchResult | n
         sourceType: 'web',
         description: 'AI-generated answer from Perplexity'
       }
-    };
+    }
   } catch (error) {
-    log.error('Perplexity search failed:', error);
-    return null;
+    log.error('Perplexity search failed:', error)
+    return null
   }
 }
 
@@ -152,7 +156,7 @@ export const getRouter = (window: BrowserWindow) => {
         )
         .query(async ({ input }) => {
           const { queries, documents } = input
-          
+
           // Get embeddings for queries and documents
           const [queryEmbeddings, docEmbeddings] = await Promise.all([
             embed(queries),
@@ -160,8 +164,8 @@ export const getRouter = (window: BrowserWindow) => {
           ])
 
           // Calculate cosine similarity scores
-          const scores = queryEmbeddings.map(queryEmb => 
-            docEmbeddings.map(docEmb => {
+          const scores = queryEmbeddings.map((queryEmb) =>
+            docEmbeddings.map((docEmb) => {
               const dotProduct = queryEmb.reduce((sum, val, i) => sum + val * docEmb[i], 0)
               const queryNorm = Math.sqrt(queryEmb.reduce((sum, val) => sum + val * val, 0))
               const docNorm = Math.sqrt(docEmb.reduce((sum, val) => sum + val * val, 0))
@@ -178,29 +182,29 @@ export const getRouter = (window: BrowserWindow) => {
         log.info('tRPC Call: search.quick')
         try {
           // Check cache first
-          const cachedResult = searchCache.get(searchTerm);
+          const cachedResult = searchCache.get(searchTerm)
           if (cachedResult && isCacheValid(cachedResult)) {
-            log.info('Returning cached search results');
-            return cachedResult.results;
+            log.info('Returning cached search results')
+            return cachedResult.results
           }
 
           // Inside the quick search procedure, replace the commented section with:
           const [fileResults, perplexityResult] = await Promise.all([
             searchFiles(searchTerm),
-            getPerplexityAnswer(searchTerm).catch(error => {
+            getPerplexityAnswer(searchTerm).catch((error) => {
               log.error('Perplexity search failed:', error)
               return null
             })
-          ]);
+          ])
 
           const combinedResults = [
             ...(perplexityResult ? [perplexityResult] : []),
             ...fileResults
-          ].filter((result) => result.text && result.text.trim().length > 0);
+          ].filter((result) => result.text && result.text.trim().length > 0)
 
-          searchCache.set(searchTerm, { timestamp: Date.now(), results: combinedResults });
+          searchCache.set(searchTerm, { timestamp: Date.now(), results: combinedResults })
 
-          return combinedResults;
+          return combinedResults
         } catch (error) {
           log.error('Error performing quick search:', error)
           // If the overall search fails, try to return just file results
@@ -216,9 +220,9 @@ export const getRouter = (window: BrowserWindow) => {
 
       // Add a new procedure to clear the cache
       clearCache: t.procedure.mutation(() => {
-        log.info('tRPC Call: search.clearCache');
-        searchCache.clear();
-        return true;
+        log.info('tRPC Call: search.clearCache')
+        searchCache.clear()
+        return true
       }),
 
       // Add a procedure to get cache stats
@@ -230,8 +234,8 @@ export const getRouter = (window: BrowserWindow) => {
             timestamp: value.timestamp,
             isValid: isCacheValid(value)
           }))
-        };
-        return stats;
+        }
+        return stats
       })
     }),
 
@@ -256,13 +260,55 @@ export const getRouter = (window: BrowserWindow) => {
     }),
 
     folder: router({
-      openAlBERT: t.procedure.mutation(() => {
+      openAlBERT: t.procedure.mutation(async () => {
         log.info('tRPC Call: folder.openAlBERT')
-        const alBERTPath = path.join(app.getPath('home'), 'alBERT')
-        shell.openPath(alBERTPath).catch((error) => {
-          log.error('Failed to open alBERT folder:', error)
+        try {
+          const watchDirectory = await getWatchDirectory()
+          await shell.openPath(watchDirectory)
+        } catch (error) {
+          log.error('Failed to open workspace folder:', error)
+        }
+      }),
+      getCurrent: t.procedure.query(async () => {
+        const watchDirectory = await getWatchDirectory()
+        return { path: watchDirectory }
+      }),
+      getDefault: t.procedure.query(() => {
+        return { path: getDefaultWatchDirectory() }
+      }),
+      choose: t.procedure.mutation(async () => {
+        const result = await dialog.showOpenDialog(window, {
+          properties: ['openDirectory', 'createDirectory']
         })
-      })
+
+        if (result.canceled || !result.filePaths.length) {
+          return { path: null }
+        }
+
+        return { path: result.filePaths[0] }
+      }),
+      setCurrent: t.procedure
+        .input(z.object({ path: z.string().min(1) }))
+        .mutation(async ({ input }) => {
+          const resolvedPath = path.resolve(input.path)
+          log.info('tRPC Call: folder.setCurrent', resolvedPath)
+
+          try {
+            await fs.mkdir(resolvedPath, { recursive: true })
+            const savedPath = await setWatchDirectory(resolvedPath)
+
+            await shutdownSearchDb()
+            await startSearchIndexing(
+              (payload) => window.webContents.send('indexing-progress', payload),
+              savedPath
+            )
+
+            return { path: savedPath }
+          } catch (error) {
+            log.error('Failed to update workspace directory', error)
+            throw error
+          }
+        })
     }),
 
     sources: router({
@@ -288,7 +334,7 @@ export const getRouter = (window: BrowserWindow) => {
                 }
               })
             )
-            return sources.filter(source => source.content !== null)
+            return sources.filter((source) => source.content !== null)
           } catch (error) {
             log.error('Error fetching sources:', error)
             throw error
@@ -316,7 +362,7 @@ export const getRouter = (window: BrowserWindow) => {
             }
           }
         })
-    }),
+    })
   })
 }
 
@@ -354,7 +400,7 @@ async function quickSearchWeb(searchTerm: string): Promise<SearchResult[]> {
       return []
     }
 
-    return searchResults.web.results.map(result => ({
+    return searchResults.web.results.map((result) => ({
       text: result.description || result.title,
       metadata: {
         path: result.url,

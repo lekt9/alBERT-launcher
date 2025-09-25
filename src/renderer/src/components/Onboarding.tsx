@@ -1,14 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from './ui/button'
-import { 
-  Search, 
-  MessageSquare, 
-  PinIcon, 
-  Settings, 
-  ArrowRight,
-  Keyboard
-} from 'lucide-react'
+import { Search, MessageSquare, PinIcon, Settings, ArrowRight, Keyboard } from 'lucide-react'
 
 interface OnboardingStep {
   id: number
@@ -23,7 +16,7 @@ interface OnboardingStep {
 const steps: OnboardingStep[] = [
   {
     id: 1,
-    title: "Welcome to alBERT!",
+    title: 'Welcome to alBERT!',
     description: "Let's take a quick tour of the main features. Click 'Next' to begin.",
     targetSelector: '[data-highlight="search-container"]',
     tooltipPosition: 'bottom',
@@ -31,8 +24,9 @@ const steps: OnboardingStep[] = [
   },
   {
     id: 2,
-    title: "Smart Search",
-    description: "Start by typing your question or search term here. The app will instantly show relevant results from your documents.",
+    title: 'Smart Search',
+    description:
+      'Start by typing your question or search term here. The app will instantly show relevant results from your documents.',
     targetSelector: '[data-highlight="search-input"]',
     tooltipPosition: 'bottom',
     tooltipOffset: 10,
@@ -40,8 +34,9 @@ const steps: OnboardingStep[] = [
   },
   {
     id: 3,
-    title: "AI Chat",
-    description: "Press Enter to start a chat with AI. It will analyze your documents and provide detailed answers with citations.",
+    title: 'AI Chat',
+    description:
+      'Press Enter to start a chat with AI. It will analyze your documents and provide detailed answers with citations.',
     targetSelector: '[data-highlight="response-panel"]',
     tooltipPosition: 'right',
     tooltipOffset: 20,
@@ -49,16 +44,18 @@ const steps: OnboardingStep[] = [
   },
   {
     id: 4,
-    title: "Sticky Notes",
-    description: "Drag any search result or chat response to create a sticky note. Sticky notes are always remembered by the AI for future searches. You can move them around and edit them freely.",
+    title: 'Sticky Notes',
+    description:
+      'Drag any search result or chat response to create a sticky note. Sticky notes are always remembered by the AI for future searches. You can move them around and edit them freely.',
     targetSelector: '[data-highlight="search-results"]',
     tooltipPosition: 'right',
     icon: <PinIcon className="w-6 h-6" />
   },
   {
     id: 5,
-    title: "Settings & Privacy",
-    description: "Toggle between private (local) and public AI models, and customize your settings here.",
+    title: 'Settings & Privacy',
+    description:
+      'Toggle between private (local) and public AI models, and customize your settings here.',
     targetSelector: '[data-highlight="settings-toggle"]',
     tooltipPosition: 'left',
     tooltipOffset: 10,
@@ -66,8 +63,8 @@ const steps: OnboardingStep[] = [
   },
   {
     id: 6,
-    title: "Keyboard Shortcuts",
-    description: "Use ↑↓ to navigate results, Enter to chat, Ctrl/Cmd+N for new note, and more!",
+    title: 'Keyboard Shortcuts',
+    description: 'Use ↑↓ to navigate results, Enter to chat, Ctrl/Cmd+N for new note, and more!',
     targetSelector: '[data-highlight="keyboard-shortcuts"]',
     tooltipPosition: 'top',
     tooltipOffset: 10,
@@ -78,7 +75,7 @@ const steps: OnboardingStep[] = [
 const useHighlightEffect = (currentStep: number) => {
   useEffect(() => {
     // Remove previous highlights
-    document.querySelectorAll('[data-highlight]').forEach(el => {
+    document.querySelectorAll('[data-highlight]').forEach((el) => {
       el.classList.remove('highlight-active')
     })
 
@@ -155,7 +152,7 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
     if (currentStep === steps.length - 1) {
       onComplete()
     } else {
-      setCurrentStep(prev => prev + 1)
+      setCurrentStep((prev) => prev + 1)
     }
   }
 
@@ -192,21 +189,20 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
             left: tooltipPosition.x,
             top: tooltipPosition.y,
             transform: `translate(-50%, -50%) translate(0, ${
-              step.tooltipPosition === 'bottom' ? '20px' : 
-              step.tooltipPosition === 'top' ? '-20px' : '0'
+              step.tooltipPosition === 'bottom'
+                ? '20px'
+                : step.tooltipPosition === 'top'
+                  ? '-20px'
+                  : '0'
             })`
           }}
         >
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-primary/10 rounded-lg text-primary">
-              {step.icon}
-            </div>
+            <div className="p-2 bg-primary/10 rounded-lg text-primary">{step.icon}</div>
             <h3 className="text-lg font-semibold">{step.title}</h3>
           </div>
-          
-          <p className="text-muted-foreground mb-6">
-            {step.description}
-          </p>
+
+          <p className="text-muted-foreground mb-6">{step.description}</p>
 
           <div className="flex justify-between items-center">
             <Button variant="ghost" onClick={handleSkip}>
@@ -232,4 +228,4 @@ export function Onboarding({ onComplete }: OnboardingProps): JSX.Element {
       </div>
     </AnimatePresence>
   )
-} 
+}

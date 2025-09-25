@@ -1,98 +1,89 @@
-import React, { useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { FileText, ExternalLink, Globe } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
-import { trpcClient } from '../util/trpc-client';
-import { RankedChunk } from '@/lib/context-utils';
-import { useDrag } from 'react-dnd';
-import { Badge } from '@/components/ui/badge';
-import type { SearchResult } from '../types/search';
+import React, { useMemo } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
+import { FileText, ExternalLink, Globe } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
+import { trpcClient } from '../util/trpc-client'
+import { RankedChunk } from '@/lib/context-utils'
+import { useDrag } from 'react-dnd'
+import { Badge } from '@/components/ui/badge'
+import type { SearchResult } from '../types/search'
 
 interface SearchResultsProps {
-  searchResults: SearchResult[];
-  selectedIndex: number;
-  rankedChunks: RankedChunk[];
-  createStickyNote: (
-    result: SearchResult,
-    position: { x: number; y: number }
-  ) => void;
+  searchResults: SearchResult[]
+  selectedIndex: number
+  rankedChunks: RankedChunk[]
+  createStickyNote: (result: SearchResult, position: { x: number; y: number }) => void
 }
 
 interface DropResult {
-  x: number;
-  y: number;
+  x: number
+  y: number
 }
 
 const handlePathClick = async (path: string, e: React.MouseEvent): Promise<void> => {
-  e.stopPropagation();
+  e.stopPropagation()
 
   if (path.startsWith('http')) {
-    window.open(path, '_blank');
+    window.open(path, '_blank')
   } else {
     try {
-      await trpcClient.document.open.mutate(path);
+      await trpcClient.document.open.mutate(path)
     } catch (error) {
-      console.error('Failed to open document:', error);
+      console.error('Failed to open document:', error)
     }
   }
-};
+}
 
 const truncateText = (text: string, maxLength: number = 150): string => {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '...';
-};
+  if (text.length <= maxLength) return text
+  return text.slice(0, maxLength) + '...'
+}
 
 const SearchResultItem: React.FC<{
-  result: SearchResult;
-  chunk: RankedChunk & { combinedText: string };
-  index: number;
-  selectedIndex: number;
-  createStickyNote: (result: SearchResult, position: { x: number; y: number }) => void;
+  result: SearchResult
+  chunk: RankedChunk & { combinedText: string }
+  index: number
+  selectedIndex: number
+  createStickyNote: (result: SearchResult, position: { x: number; y: number }) => void
 }> = ({ result, chunk, index, selectedIndex, createStickyNote }) => {
   const [{ isDragging }, drag] = useDrag({
     type: 'searchResult',
     item: () => ({
       type: 'searchResult',
       result,
-      text: chunk.combinedText,
+      text: chunk.combinedText
     }),
     collect: (monitor) => ({
-      isDragging: monitor.isDragging(),
+      isDragging: monitor.isDragging()
     }),
     end: (item, monitor) => {
-      const dropResult = monitor.getDropResult<{ x: number; y: number }>();
+      const dropResult = monitor.getDropResult<{ x: number; y: number }>()
       if (dropResult) {
         createStickyNote(result, {
           x: dropResult.x,
-          y: dropResult.y,
-        });
+          y: dropResult.y
+        })
       }
-    },
-  });
+    }
+  })
 
   const isWebSource =
-    result.metadata.sourceType === 'web' ||
-    result.metadata.path.startsWith('http');
+    result.metadata.sourceType === 'web' || result.metadata.path.startsWith('http')
   const displayName = isWebSource
-    ? truncateText(
-        result.metadata.title ||
-          result.metadata.path.split('/').pop() ||
-          '',
-        50
-      )
-    : truncateText(result.metadata.path.split('/').pop() || '', 50);
+    ? truncateText(result.metadata.title || result.metadata.path.split('/').pop() || '', 50)
+    : truncateText(result.metadata.path.split('/').pop() || '', 50)
 
-  const truncatedContent = truncateText(chunk.combinedText, 500);
+  const truncatedContent = truncateText(chunk.combinedText, 500)
 
   const selectionClasses =
     index === selectedIndex
       ? 'ring-1 ring-sky-300/70 shadow-[0_40px_120px_-60px_rgba(125,211,252,0.55)]'
-      : 'shadow-[0_24px_80px_-70px_rgba(15,23,42,0.85)]';
+      : 'shadow-[0_24px_80px_-70px_rgba(15,23,42,0.85)]'
 
-  const variantLabel = isWebSource ? 'Web source' : 'Local file';
-  const formattedScore = Math.max(0, chunk.score || 0).toFixed(2);
+  const variantLabel = isWebSource ? 'Web source' : 'Local file'
+  const formattedScore = Math.max(0, chunk.score || 0).toFixed(2)
 
   return (
     <div
@@ -110,14 +101,15 @@ const SearchResultItem: React.FC<{
         )}
         onClick={() => handleResultClick(result)}
       >
-        <div className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100" style={{ background: 'linear-gradient(135deg, rgba(56,189,248,0.12), rgba(236,72,153,0.08))' }} />
+        <div
+          className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"
+          style={{
+            background: 'linear-gradient(135deg, rgba(56,189,248,0.12), rgba(236,72,153,0.08))'
+          }}
+        />
         <CardContent className="relative flex items-start gap-4 p-5">
           <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-sky-200">
-            {isWebSource ? (
-              <Globe className="h-5 w-5" />
-            ) : (
-              <FileText className="h-5 w-5" />
-            )}
+            {isWebSource ? <Globe className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
           </div>
           <div className="flex-1 space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -164,8 +156,7 @@ const SearchResultItem: React.FC<{
 
             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300/70">
               <span>
-                Modified{' '}
-                {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
+                Modified {new Date(result.metadata.modified_at * 1000).toLocaleDateString()}
               </span>
               <span>Drag to pin as a floating note</span>
             </div>
@@ -173,47 +164,45 @@ const SearchResultItem: React.FC<{
         </CardContent>
       </Card>
     </div>
-  );
-};
+  )
+}
 
 const SearchResults: React.FC<SearchResultsProps> = React.memo(
   ({ searchResults, selectedIndex, rankedChunks, createStickyNote }) => {
     const groupedChunks = useMemo(() => {
-      const chunksByPath = new Map<string, RankedChunk[]>();
+      const chunksByPath = new Map<string, RankedChunk[]>()
 
       rankedChunks.forEach((chunk) => {
         if (!chunksByPath.has(chunk.path)) {
-          chunksByPath.set(chunk.path, []);
+          chunksByPath.set(chunk.path, [])
         }
-        chunksByPath.get(chunk.path)?.push(chunk);
-      });
+        chunksByPath.get(chunk.path)?.push(chunk)
+      })
 
-      const combinedChunks: Array<RankedChunk & { combinedText: string }> = [];
+      const combinedChunks: Array<RankedChunk & { combinedText: string }> = []
       chunksByPath.forEach((chunks) => {
-        const combinedText = chunks
-          .map((chunk) => chunk.text.trim())
-          .join('\n\n---\n\n');
+        const combinedText = chunks.map((chunk) => chunk.text.trim()).join('\n\n---\n\n')
 
-        const maxScore = Math.max(...chunks.map((c) => c.score));
+        const maxScore = Math.max(...chunks.map((c) => c.score))
 
         combinedChunks.push({
           ...chunks[0],
           text: combinedText,
           score: maxScore,
-          combinedText,
-        });
-      });
+          combinedText
+        })
+      })
 
-      return combinedChunks.sort((a, b) => b.score - a.score);
-    }, [rankedChunks]);
+      return combinedChunks.sort((a, b) => b.score - a.score)
+    }, [rankedChunks])
 
     const handleResultClick = async (result: SearchResult): Promise<void> => {
       try {
-        await trpcClient.document.open.mutate(result.metadata.path);
+        await trpcClient.document.open.mutate(result.metadata.path)
       } catch (error) {
-        console.error('Failed to open document:', error);
+        console.error('Failed to open document:', error)
       }
-    };
+    }
 
     return (
       <div
@@ -222,14 +211,10 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
           searchResults.length === 0 ? 'h-0 border-0 bg-transparent' : ''
         )}
       >
-        <ScrollArea
-          className={cn('h-full px-2 py-3', searchResults.length === 0 ? 'p-0' : '')}
-        >
+        <ScrollArea className={cn('h-full px-2 py-3', searchResults.length === 0 ? 'p-0' : '')}>
           {groupedChunks.map((chunk, index) => {
-            const result = searchResults.find(
-              (r) => r.metadata.path === chunk.path
-            );
-            if (!result) return null;
+            const result = searchResults.find((r) => r.metadata.path === chunk.path)
+            if (!result) return null
 
             return (
               <SearchResultItem
@@ -240,7 +225,7 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
                 selectedIndex={selectedIndex}
                 createStickyNote={createStickyNote}
               />
-            );
+            )
           })}
         </ScrollArea>
         {searchResults.length > 0 && (
@@ -254,10 +239,10 @@ const SearchResults: React.FC<SearchResultsProps> = React.memo(
           </div>
         )}
       </div>
-    );
+    )
   }
-);
+)
 
-SearchResults.displayName = 'SearchResults';
+SearchResults.displayName = 'SearchResults'
 
-export default SearchResults;
+export default SearchResults
