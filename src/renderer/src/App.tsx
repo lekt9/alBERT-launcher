@@ -1260,10 +1260,10 @@ Keep your response focused and concise.`
         }}
         className="overflow-hidden text-slate-100"
       >
-        <div className="relative z-10 flex min-h-screen w-full items-center justify-center px-4 py-10 lg:px-8">
-          <div className="flex w-full max-w-3xl flex-col items-center gap-6">
+        <div className="relative z-10 flex min-h-screen w-full px-4 py-10 lg:px-8">
+          <div className="flex w-full flex-col gap-8">
             <Card className={cn(PANEL_BASE_CLASS, 'w-full')} data-highlight="search-container">
-              <CardContent className="flex max-h-[80vh] flex-col p-0">
+              <CardContent className="flex flex-col p-0">
                 {searchSteps.length > 0 && (
                   <div className="px-6 pt-6">
                     <SearchBadges steps={searchSteps} />
@@ -1288,7 +1288,7 @@ Keep your response focused and concise.`
                   />
                 </div>
 
-                <ScrollArea className={cn(hasScrollableContent ? 'flex-1' : '')}>
+                <ScrollArea>
                   <div className="flex flex-col gap-6 px-6 pb-6">
                     {showResults && (
                       <SearchResults

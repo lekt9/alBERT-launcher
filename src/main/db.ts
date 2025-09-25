@@ -92,7 +92,14 @@ class SearchDB {
             }
           }
         } catch (error) {
-          logger.error(`Error processing entry ${entry.name}:`, error)
+          const message = error instanceof Error ? error.message : String(error)
+          if (message.includes('ECONNREFUSED')) {
+            logger.warn(
+              `Skipping ${entry.name} while the vector index is offline (connection refused). We'll retry on the next indexing run.`
+            )
+          } else {
+            logger.error(`Error processing entry ${entry.name}:`, error)
+          }
         }
       }
 
